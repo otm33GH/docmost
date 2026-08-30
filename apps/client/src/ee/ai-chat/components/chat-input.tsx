@@ -1,4 +1,12 @@
-import { useCallback, useRef, useEffect, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useEffect,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { IconArrowUp, IconPaperclip, IconPlayerStopFilled, IconX, IconFile, IconPhoto, IconPlus, IconAt, IconFileText } from "@tabler/icons-react";
 import { Popover } from "@mantine/core";
@@ -33,6 +41,10 @@ type Props = {
   variant?: "card" | "flat";
   showDisclaimer?: boolean;
   chatId?: string;
+};
+
+export type ChatInputHandle = {
+  prefill: (text: string) => void;
 };
 
 function extractMentions(json: any): PageMention[] {
@@ -89,7 +101,7 @@ function editorJsonToText(json: any): string {
   return text;
 }
 
-export default function ChatInput({
+const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   isStreaming,
   onSend,
   onStop,
@@ -100,13 +112,14 @@ export default function ChatInput({
   variant = "card",
   showDisclaimer = true,
   chatId,
-}: Props) {
+}: Props, ref) {
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
   const { t } = useTranslation();
   const [isEmpty, setIsEmpty] = useState(true);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const plusMenuId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const onSendRef = useRef(onSend);
   onSendRef.current = onSend;
@@ -176,7 +189,7 @@ export default function ChatInput({
   }, []);
 
   const handleSubmit = useCallback(() => {
-    if (!editor || isStreaming) return;
+    if (!editor || editor.isDestroyed || isStreaming) return;
     const json = editor.getJSON();
     const text = editorJsonToText(json).trim();
     const readyAttachments = pendingAttachments.filter((a) => !a.uploading);
@@ -200,7 +213,7 @@ export default function ChatInput({
         link: false,
       }),
       Placeholder.configure({
-        placeholder: placeholder || "Ask anything... Use @ to mention pages",
+        placeholder: placeholder || t("Ask anything... Use @ to mention pages"),
       }),
       CharacterCount.configure({
         limit: 50000,
@@ -225,6 +238,11 @@ export default function ChatInput({
       }),
     ],
     editorProps: {
+      attributes: {
+        role: "textbox",
+        "aria-label": placeholder || t("Ask anything... Use @ to mention pages"),
+        "aria-multiline": "true",
+      },
       handleDOMEvents: {
         keydown: (_view, event) => {
           if (
@@ -249,6 +267,7 @@ export default function ChatInput({
     },
     content: "",
     editable: true,
+    textDirection: "auto",
     immediatelyRender: true,
     shouldRerenderOnTransaction: false,
     autofocus: autofocus ? "end" : false,
@@ -258,10 +277,23 @@ export default function ChatInput({
   });
 
   useEffect(() => {
-    if (editor && autofocus) {
+    if (editor && !editor.isDestroyed && autofocus) {
       editor.commands.focus();
     }
   }, [editor]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      prefill: (text: string) => {
+        if (!editor || editor.isDestroyed) return;
+        editor.commands.clearContent();
+        editor.commands.insertContent(text);
+        editor.commands.focus();
+      },
+    }),
+    [editor],
+  );
 
   const hasContent = !isEmpty || pendingAttachments.some((a) => !a.uploading) || (contextPages?.length ?? 0) > 0;
 
@@ -275,6 +307,8 @@ export default function ChatInput({
         type="file"
         accept={ACCEPTED_FILE_TYPES}
         multiple
+        aria-label={t("Add files")}
+        tabIndex={-1}
         style={{ display: "none" }}
         onChange={(e) => handleFileSelect(e.target.files)}
       />
@@ -329,20 +363,33 @@ export default function ChatInput({
 
       <EditorContent editor={editor} className={classes.editorContent} />
       <div className={classes.actions}>
-        <Popover opened={plusMenuOpen} onChange={setPlusMenuOpen} position="top-start" width={220} shadow="md">
+        <Popover
+          opened={plusMenuOpen}
+          onChange={setPlusMenuOpen}
+          position="top-start"
+          width={220}
+          shadow="md"
+          withRoles={false}
+          trapFocus
+          returnFocus
+        >
           <Popover.Target>
             <button
               type="button"
               className={classes.plusButton}
               onClick={() => setPlusMenuOpen((o) => !o)}
               aria-label="Add content"
+              aria-haspopup="menu"
+              aria-expanded={plusMenuOpen}
+              aria-controls={plusMenuOpen ? plusMenuId : undefined}
             >
               <IconPlus size={14} />
             </button>
           </Popover.Target>
-          <Popover.Dropdown p={4}>
+          <Popover.Dropdown id={plusMenuId} role="menu" p={4}>
             <button
               type="button"
+              role="menuitem"
               className={classes.plusMenuItem}
               onClick={() => {
                 fileInputRef.current?.click();
@@ -362,6 +409,7 @@ export default function ChatInput({
             </button>
             <button
               type="button"
+              role="menuitem"
               className={classes.plusMenuItem}
               onClick={() => {
                 editor?.commands.insertContent("@");
@@ -370,7 +418,7 @@ export default function ChatInput({
               }}
             >
               <IconAt size={16} className={classes.plusMenuIcon} />
-              Mention a page
+              {t("Mention a page")}
             </button>
           </Popover.Dropdown>
         </Popover>
@@ -406,4 +454,6 @@ export default function ChatInput({
     )}
     </>
   );
-}
+});
+
+export default ChatInput;

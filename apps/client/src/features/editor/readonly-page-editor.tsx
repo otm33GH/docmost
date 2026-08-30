@@ -2,97 +2,40 @@ import "@/features/editor/styles/index.css";
 import React, {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { IndexeddbPersistence } from "y-indexeddb";
+import { Editor, EditorProvider } from "@tiptap/react";
+import { mainExtensions } from "@/features/editor/extensions/extensions";
+import { Document } from "@tiptap/extension-document";
+import { Heading, UniqueID } from "@docmost/editor-ext";
+import { Text } from "@tiptap/extension-text";
+import { Placeholder } from "@tiptap/extension-placeholder";
+import { useAtom } from "jotai";
 import {
-  WebSocketStatus,
-  onStatelessParameters,
-} from "@hocuspocus/provider";
-import {
-  HocuspocusProviderWebsocketComponent,
-  HocuspocusRoom,
-  useHocuspocusEvent,
-  useHocuspocusProvider,
-} from "@hocuspocus/provider-react";
-import {
-  Editor,
-  EditorContent,
-  EditorProvider,
-  useEditor,
-  useEditorState,
-} from "@tiptap/react";
-import {
-  collabExtensions,
-  mainExtensions,
-} from "@/features/editor/extensions/extensions";
-import { useAtom, useAtomValue } from "jotai";
-import { currentUserAtom } from "@/features/user/atoms/current-user-atom";
-import {
-  currentPageEditModeAtom,
   lightboxRequestAtom,
-  pageEditorAtom,
-  yjsConnectionStatusAtom,
-  yjsSyncedAtom,
-} from "@/features/editor/atoms/editor-atoms";
-import { asideStateAtom } from "@/components/layouts/global/hooks/atoms/sidebar-atom";
-import {
-  activeCommentIdAtom,
-  showCommentPopupAtom,
-  showReadOnlyCommentPopupAtom,
-} from "@/features/comment/atoms/comment-atom";
-import CommentDialog from "@/features/comment/components/comment-dialog";
-import { EditorBubbleMenu } from "@/features/editor/components/bubble-menu/bubble-menu";
-import { ReadonlyBubbleMenu } from "@/features/editor/components/bubble-menu/readonly-bubble-menu";
-import TableMenu from "@/features/editor/components/table/table-menu.tsx";
-import { TableHandlesLayer } from "@/features/editor/components/table/handle/table-handles-layer";
-import ImageMenu from "@/features/editor/components/image/image-menu.tsx";
-import CalloutMenu from "@/features/editor/components/callout/callout-menu.tsx";
-import VideoMenu from "@/features/editor/components/video/video-menu.tsx";
-import PdfMenu from "@/features/editor/components/pdf/pdf-menu.tsx";
-import SubpagesMenu from "@/features/editor/components/subpages/subpages-menu.tsx";
+  readOnlyEditorAtom,
+} from "@/features/editor/atoms/editor-atoms.ts";
+import { useEditorScroll } from "./hooks/use-editor-scroll";
+import { TransclusionLookupProvider } from "@/features/editor/components/transclusion/transclusion-lookup-context";
 import LightboxView, {
   getLightboxClickRequest,
 } from "@/features/editor/components/common/lightbox-view";
-import {
-  handleFileDrop,
-  handlePaste,
-} from "@/features/editor/components/common/editor-paste-handler.tsx";
-import ExcalidrawMenu from "./components/excalidraw/excalidraw-menu-lazy";
-import DrawioMenu from "./components/drawio/drawio-menu";
-import { useCollabToken } from "@/features/auth/queries/auth-query.tsx";
-import SearchAndReplaceDialog from "@/features/editor/components/search-and-replace/search-and-replace-dialog.tsx";
-import { useDebouncedCallback, useDocumentVisibility } from "@mantine/hooks";
-import { useIdle } from "@/hooks/use-idle.ts";
-import { queryClient } from "@/main.tsx";
-import { IPage } from "@/features/page/types/page.types.ts";
-import { useParams } from "react-router-dom";
-import { extractPageSlugId, platformModifierKey } from "@/lib";
-import { FIVE_MINUTES } from "@/lib/constants.ts";
-import { PageEditMode } from "@/features/user/types/user.types.ts";
-import { jwtDecode } from "jwt-decode";
-import { searchSpotlight } from "@/features/search/constants.ts";
-import { useEditorScroll } from "./hooks/use-editor-scroll";
-import { EditorAiMenu } from "@/ee/ai/components/editor/ai-menu/ai-menu";
-import { EditorLinkMenu } from "@/features/editor/components/link/link-menu";
-import ColumnsMenu from "@/features/editor/components/columns/columns-menu.tsx";
-import { NextcloudPicker } from "./components/nextcloud/nextcloud-picker";
-import { TransclusionLookupProvider } from "@/features/editor/components/transclusion/transclusion-lookup-context";
-import { useTranslation } from "react-i18next";
-import {
-  acquireCollabSocket,
-  getCollabSocket,
-  releaseCollabSocket,
-} from "@/features/editor/collab-socket";
 
 interface PageEditorProps {
   pageId: string;
   editable: boolean;
   content: any;
-  canComment?: boolean;
+  pageId?: string;
+  printMode?: boolean;
+  /**
+   * When rendering inside a public share, pass the share's id (or key). Lookups
+   * for transclusion content then resolve against the share graph instead of
+   * the viewer's personal permissions, so a share never leaks source content
+   * that isn't itself shared.
+   */
+  shareId?: string;
 }
 
 export default function PageEditor({
@@ -170,12 +113,12 @@ export default function PageEditor({
 
 function CollabPageEditor({
   pageId,
-  editable,
-  content,
-  canComment,
+  printMode = false,
+  shareId,
 }: PageEditorProps) {
-  const { t } = useTranslation();
-  const provider = useHocuspocusProvider();
+  const [, setReadOnlyEditor] = useAtom(readOnlyEditorAtom);
+  const [lightboxRequest, setLightboxRequest] = useAtom(lightboxRequestAtom);
+  const [contentEditor, setContentEditor] = useState<Editor | null>(null);
   const isComponentMounted = useRef(false);
   const editorRef = useRef<Editor | null>(null);
 
@@ -243,166 +186,28 @@ function CollabPageEditor({
     }
   }, [isIdle, documentState, provider, resetIdle]);
 
-  const extensions = useMemo(() => {
-    if (!currentUser?.user) {
-      return mainExtensions;
-    }
-
-    return [...mainExtensions, ...collabExtensions(provider, currentUser.user)];
-  }, [provider, currentUser?.user]);
-
-  const debouncedUpdateContent = useDebouncedCallback((newContent: any) => {
-    const pageData = queryClient.getQueryData<IPage>(["pages", slugId]);
-
-    if (pageData) {
-      queryClient.setQueryData(["pages", slugId], {
-        ...pageData,
-        content: newContent,
-      });
-    }
-  }, 3000);
-
-  const editor = useEditor(
-    {
-      extensions,
-      editable,
-      textDirection: "auto",
-      immediatelyRender: true,
-      shouldRerenderOnTransaction: false,
-      editorProps: {
-        scrollThreshold: 80,
-        scrollMargin: 80,
-        attributes: {
-          "aria-label": t("Page content"),
-        },
-        handleDOMEvents: {
-          keydown: (_view, event) => {
-            if (platformModifierKey(event) && event.code === "KeyS") {
-              event.preventDefault();
-              return true;
-            }
-            if (platformModifierKey(event) && event.code === "KeyK") {
-              searchSpotlight.open();
-              return true;
-            }
-            if (["ArrowUp", "ArrowDown", "Enter"].includes(event.key)) {
-              const slashCommand = document.querySelector("#slash-command");
-              if (slashCommand) {
-                return true;
-              }
-            }
-            if (
-              [
-                "ArrowUp",
-                "ArrowDown",
-                "ArrowLeft",
-                "ArrowRight",
-                "Enter",
-              ].includes(event.key)
-            ) {
-              const emojiCommand = document.querySelector("#emoji-command");
-              if (emojiCommand) {
-                return true;
-              }
-            }
-          },
-        },
-        handlePaste: (_view, event) => {
-          if (!editorRef.current) return false;
-
-          return handlePaste(
-            editorRef.current,
-            event,
-            pageId,
-            currentUser?.user.id,
-          );
-        },
-        handleDrop: (_view, event, _slice, moved) => {
-          if (!editorRef.current) return false;
-
-          return handleFileDrop(editorRef.current, event, moved, pageId);
-        },
-        handleClickOn: (view, _pos, node) => {
-          if (view.editable) return false;
-
-          const request = getLightboxClickRequest(node);
-          if (!request) return false;
-
-          setLightboxRequest(request);
-          return true;
-        },
-        handleDoubleClickOn: (_view, _pos, node) => {
-          const request = getLightboxClickRequest(node);
-          if (!request) return false;
-
-          setLightboxRequest(request);
-          return true;
-        },
-      },
-      onCreate({ editor }) {
-        if (editor) {
-          // @ts-ignore
-          setEditor(editor);
-          // @ts-ignore
-          editor.storage.pageId = pageId;
-          handleScrollTo(editor);
-          editorRef.current = editor;
-        }
-      },
-      onUpdate({ editor }) {
-        if (editor.isEmpty) return;
-        const editorJson = editor.getJSON();
-        //update local page cache to reduce flickers
-        debouncedUpdateContent(editorJson);
-      },
-    },
-    [pageId, editable, extensions],
-  );
-
-  useLayoutEffect(() => {
-    if (editor && !editor.isDestroyed) {
-      // @ts-ignore
-      setEditor(editor);
-      // @ts-ignore
-      editor.storage.pageId = pageId;
-      editorRef.current = editor;
-    }
-  }, [editor, pageId, setEditor]);
-
-  const editorIsEditable = useEditorState({
-    editor,
-    selector: (ctx) => {
-      return ctx.editor?.isEditable ?? false;
-    },
-  });
-
-  const handleActiveCommentEvent = (event) => {
-    const { commentId, resolved } = event.detail;
-
-    if (resolved) {
-      return;
-    }
-
-    setActiveCommentId(commentId);
-    setAsideState({ tab: "comments", isAsideOpen: true });
-
-    //wait if aside is closed
-    setTimeout(() => {
-      const selector = `div[data-comment-id="${commentId}"]`;
-      const commentElement = document.querySelector(selector);
-      commentElement?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 400);
-  };
-
   useEffect(() => {
-    document.addEventListener("ACTIVE_COMMENT_EVENT", handleActiveCommentEvent);
-    return () => {
-      document.removeEventListener(
-        "ACTIVE_COMMENT_EVENT",
-        handleActiveCommentEvent,
-      );
-    };
-  }, []);
+    if (!shareId) return;
+    setLightboxRequest(null);
+  }, [pageId, shareId]);
+
+  const extensions = useMemo(() => {
+    const excludedExtensions = new Set([
+      "uniqueID",
+      ...(printMode ? ["tableHeaderPin", "tableReadonlySort"] : []),
+    ]);
+    const filteredExtensions = mainExtensions.filter(
+      (ext) => !excludedExtensions.has(ext.name),
+    );
+
+    return [
+      ...filteredExtensions,
+      UniqueID.configure({
+        types: ["heading", "paragraph"],
+        updateDocument: false,
+      }),
+    ];
+  }, [printMode]);
 
   useEffect(() => {
     setActiveCommentId(null);
@@ -454,13 +259,45 @@ function CollabPageEditor({
   }
 
   return (
-    <div className="editor-container" style={{ position: "relative" }}>
-      <div ref={menuContainerRef}>
-        <EditorContent editor={editor} />
+    <TransclusionLookupProvider shareId={shareId}>
+      <div className="page-title">
+        <EditorProvider
+          editable={false}
+          immediatelyRender={true}
+          textDirection="auto"
+          extensions={titleExtensions}
+          content={title}
+        ></EditorProvider>
+      </div>
 
-        {editor && (
-          <SearchAndReplaceDialog editor={editor} editable={editable} />
-        )}
+      <EditorProvider
+        editable={false}
+        immediatelyRender={true}
+        textDirection="auto"
+        extensions={extensions}
+        content={content}
+        editorProps={
+          shareId
+            ? {
+                handleClickOn: (_view, _pos, node) => {
+                  const request = getLightboxClickRequest(node);
+                  if (!request) return false;
+
+                  setLightboxRequest(request);
+                  return true;
+                },
+              }
+            : undefined
+        }
+        onCreate={({ editor }) => {
+          if (editor) {
+            if (pageId) {
+              // @ts-ignore
+              editor.storage.pageId = pageId;
+            }
+            // @ts-ignore
+            setReadOnlyEditor(editor);
+            setContentEditor(editor);
 
         {editor && editorIsEditable && (
           <div>
@@ -501,31 +338,17 @@ function CollabPageEditor({
         onClick={() => {
           if (editor && !editor.isDestroyed) editor.commands.focus("end");
         }}
-        style={{ paddingBottom: "20vh" }}
-      ></div>
-    </div>
-  );
-}
-
-function StaticPageEditor({
-  content,
-  ariaLabel,
-}: {
-  content: any;
-  ariaLabel: string;
-}) {
-  return (
-    <EditorProvider
-      editable={false}
-      immediatelyRender={true}
-      textDirection="auto"
-      extensions={mainExtensions}
-      content={content}
-      editorProps={{
-        attributes: {
-          "aria-label": ariaLabel,
-        },
-      }}
-    />
+      ></EditorProvider>
+      {shareId && contentEditor && (
+        <LightboxView
+          editor={contentEditor}
+          open={!!lightboxRequest}
+          src={lightboxRequest?.src ?? ""}
+          type={lightboxRequest?.type ?? "image"}
+          onClose={() => setLightboxRequest(null)}
+        />
+      )}
+      <div style={{ paddingBottom: "20vh" }}></div>
+    </TransclusionLookupProvider>
   );
 }

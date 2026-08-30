@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB, KyselyTransaction } from '@docmost/db/types/kysely.types';
 import { dbOrTx } from '@docmost/db/utils';
@@ -13,6 +15,11 @@ import { MemberInfo, UserSpaceRole } from './types';
 import { executeWithCursorPagination } from '@docmost/db/pagination/cursor-pagination';
 import { GroupRepo } from '@docmost/db/repos/group/group.repo';
 import { SpaceRepo } from '@docmost/db/repos/space/space.repo';
+import { withCache } from '../../../common/helpers/with-cache';
+import {
+  CacheKey,
+  PERMISSION_CACHE_TTL_MS,
+} from '../../../common/helpers/cache-keys';
 
 @Injectable()
 export class SpaceMemberRepo {
@@ -20,6 +27,7 @@ export class SpaceMemberRepo {
     @InjectKysely() private readonly db: KyselyDB,
     private readonly groupRepo: GroupRepo,
     private readonly spaceRepo: SpaceRepo,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   async insertSpaceMember(
@@ -38,8 +46,10 @@ export class SpaceMemberRepo {
     updatableSpaceMember: UpdatableSpaceMember,
     spaceMemberId: string,
     spaceId: string,
+    trx?: KyselyTransaction,
   ): Promise<void> {
-    await this.db
+    const db = dbOrTx(this.db, trx);
+    await db
       .updateTable('spaceMembers')
       .set(updatableSpaceMember)
       .where('id', '=', spaceMemberId)
@@ -84,8 +94,13 @@ export class SpaceMemberRepo {
       .execute();
   }
 
-  async roleCountBySpaceId(role: string, spaceId: string): Promise<number> {
-    const { count } = await this.db
+  async roleCountBySpaceId(
+    role: string,
+    spaceId: string,
+    trx?: KyselyTransaction,
+  ): Promise<number> {
+    const db = dbOrTx(this.db, trx);
+    const { count } = await db
       .selectFrom('spaceMembers')
       .select((eb) => eb.fn.count('role').as('count'))
       .where('role', '=', role)
@@ -214,25 +229,36 @@ export class SpaceMemberRepo {
     userId: string,
     spaceId: string,
   ): Promise<UserSpaceRole[]> {
-    const roles = await this.db
-      .selectFrom('spaceMembers')
-      .select(['userId', 'role'])
-      .where('userId', '=', userId)
-      .where('spaceId', '=', spaceId)
-      .unionAll(
-        this.db
+    return withCache(
+      this.cacheManager,
+      CacheKey.SPACE_ROLES(userId, spaceId),
+      PERMISSION_CACHE_TTL_MS,
+      async () => {
+        const roles = await this.db
           .selectFrom('spaceMembers')
-          .innerJoin('groupUsers', 'groupUsers.groupId', 'spaceMembers.groupId')
-          .select(['groupUsers.userId', 'spaceMembers.role'])
-          .where('groupUsers.userId', '=', userId)
-          .where('spaceMembers.spaceId', '=', spaceId),
-      )
-      .execute();
+          .select(['userId', 'role'])
+          .where('userId', '=', userId)
+          .where('spaceId', '=', spaceId)
+          .unionAll(
+            this.db
+              .selectFrom('spaceMembers')
+              .innerJoin(
+                'groupUsers',
+                'groupUsers.groupId',
+                'spaceMembers.groupId',
+              )
+              .select(['groupUsers.userId', 'spaceMembers.role'])
+              .where('groupUsers.userId', '=', userId)
+              .where('spaceMembers.spaceId', '=', spaceId),
+          )
+          .execute();
 
-    if (!roles || roles.length === 0) {
-      return undefined;
-    }
-    return roles;
+        if (!roles || roles.length === 0) {
+          return undefined;
+        }
+        return roles;
+      },
+    );
   }
 
   async getUserIdsWithSpaceAccess(
@@ -288,6 +314,32 @@ export class SpaceMemberRepo {
   async getUserSpaceIds(userId: string): Promise<string[]> {
     const membership = await this.getUserSpaceIdsQuery(userId).execute();
     return membership.map((space) => space.id);
+  }
+
+  async getUserRolesForSpaces(
+    userId: string,
+    spaceIds: string[],
+  ): Promise<{ spaceId: string; role: string }[]> {
+    if (spaceIds.length === 0) return [];
+
+    return this.db
+      .selectFrom('spaceMembers')
+      .select(['spaceId', 'role'])
+      .where('userId', '=', userId)
+      .where('spaceId', 'in', spaceIds)
+      .unionAll(
+        this.db
+          .selectFrom('spaceMembers')
+          .innerJoin(
+            'groupUsers',
+            'groupUsers.groupId',
+            'spaceMembers.groupId',
+          )
+          .select(['spaceMembers.spaceId', 'spaceMembers.role'])
+          .where('groupUsers.userId', '=', userId)
+          .where('spaceMembers.spaceId', 'in', spaceIds),
+      )
+      .execute();
   }
 
   async getUserSpaces(userId: string, pagination: PaginationOptions) {

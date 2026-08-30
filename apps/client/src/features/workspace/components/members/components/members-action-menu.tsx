@@ -12,9 +12,14 @@ import useUserRole from "@/hooks/use-user-role.tsx";
 
 interface Props {
   userId: string;
+  name: string;
   deactivatedAt: Date | null;
 }
-export default function MemberActionMenu({ userId, deactivatedAt }: Props) {
+export default function MemberActionMenu({
+  userId,
+  name,
+  deactivatedAt,
+}: Props) {
   const { t } = useTranslation();
   const deleteWorkspaceMemberMutation = useDeleteWorkspaceMemberMutation();
   const deactivateMutation = useDeactivateWorkspaceMemberMutation();
@@ -83,7 +88,11 @@ export default function MemberActionMenu({ userId, deactivatedAt }: Props) {
         arrowPosition="center"
       >
         <Menu.Target>
-          <ActionIcon variant="subtle" c="gray">
+          <ActionIcon
+            variant="subtle"
+            c="gray"
+            aria-label={t("Member actions for {{name}}", { name })}
+          >
             <IconDots size={20} stroke={2} />
           </ActionIcon>
         </Menu.Target>

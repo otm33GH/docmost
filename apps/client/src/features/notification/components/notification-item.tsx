@@ -6,17 +6,19 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import {
+  IconBell,
   IconCheck,
   IconFileDescription,
   IconPointFilled,
 } from "@tabler/icons-react";
+import { Avatar } from "@mantine/core";
 import { CustomAvatar } from "@/components/ui/custom-avatar";
 import { INotification } from "../types/notification.types";
 import { Trans, useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { useMarkReadMutation } from "../queries/notification-query";
-import { buildPageUrl } from "@/features/page/page.utils";
+import { buildPageUrl, getPageTitle } from "@/features/page/page.utils";
 import { formatRelativeTime } from "../notification.utils";
 import classes from "../notification.module.css";
 
@@ -51,6 +53,16 @@ export function NotificationItem({
           : "<bold>{{name}}</bold> gave you view access to a page";
       case "page.updated":
         return "<bold>{{name}}</bold> updated a page";
+      case "page.verified":
+        return "<bold>{{name}}</bold> verified a page";
+      case "page.approval_requested":
+        return "<bold>{{name}}</bold> submitted a page for your approval";
+      case "page.approval_rejected":
+        return "<bold>{{name}}</bold> returned a page for revision";
+      case "page.verification_expiring":
+        return "Page verification expires soon";
+      case "page.verification_expired":
+        return "Page verification has expired";
       default:
         return "";
     }
@@ -96,11 +108,17 @@ export function NotificationItem({
       className={classes.notificationItem}
     >
       <Group wrap="nowrap" align="flex-start" gap="sm">
-        <CustomAvatar
-          avatarUrl={notification.actor?.avatarUrl}
-          name={notification.actor?.name || "?"}
-          size="sm"
-        />
+        {notification.actor ? (
+          <CustomAvatar
+            avatarUrl={notification.actor.avatarUrl}
+            name={notification.actor.name}
+            size="sm"
+          />
+        ) : (
+          <Avatar size="sm" color="gray" radius="xl">
+            <IconBell size={14} />
+          </Avatar>
+        )}
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <Text size="sm" lineClamp={2}>
@@ -125,7 +143,7 @@ export function NotificationItem({
                 />
               )}
               <Text size="xs" c="dimmed" lineClamp={1}>
-                {notification.page.title || t("Untitled")}
+                {getPageTitle(notification.page.title, undefined, t)}
               </Text>
             </Group>
           )}
