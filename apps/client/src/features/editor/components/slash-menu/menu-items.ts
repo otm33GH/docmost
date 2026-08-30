@@ -7,6 +7,7 @@ import {
   IconH2,
   IconH3,
   IconInfoCircle,
+  IconLayoutKanban,
   IconList,
   IconListNumbers,
   IconMath,
@@ -19,7 +20,9 @@ import {
   IconTable,
   IconTypography,
   IconMenu4,
+  IconPageBreak,
   IconCalendar,
+  IconClock,
   IconAppWindow,
   IconSitemap,
   IconColumns3,
@@ -27,7 +30,9 @@ import {
   IconTag,
   IconCloud,
   IconCloudFilled,
-
+  IconMoodSmile,
+  IconRotate2,
+  IconSuperscript,
 } from "@tabler/icons-react";
 import {
   CommandProps,
@@ -43,6 +48,7 @@ import IconMermaid from "@/components/icons/icon-mermaid";
 import IconDrawio from "@/components/icons/icon-drawio";
 import { IconColumns4 } from "@/components/icons/icon-columns-4";
 import { IconColumns5 } from "@/components/icons/icon-columns-5";
+import i18n from "@/i18n.ts";
 import {
   AirtableIcon,
   FigmaIcon,
@@ -55,6 +61,7 @@ import {
   VimeoIcon,
   YoutubeIcon,
 } from "@/components/icons";
+import { insertBaseEmbedBlock } from "@/features/editor/components/base-embed/insert-base-embed";
 
 const CommandGroups: SlashMenuGroupedItemsType = {
   basic: [
@@ -163,7 +170,7 @@ const CommandGroups: SlashMenuGroupedItemsType = {
     {
       title: "Numbered list",
       description: "Create a list with numbering.",
-      searchTerms: ["numbered", "ordered", "list"],
+      searchTerms: ["numbered", "ordered", "list", "ol"],
       icon: IconListNumbers,
       command: ({ editor, range }: CommandProps) => {
         editor.chain().focus().deleteRange(range).toggleOrderedList().run();
@@ -192,6 +199,24 @@ const CommandGroups: SlashMenuGroupedItemsType = {
       icon: IconMenu4,
       command: ({ editor, range }: CommandProps) =>
         editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
+    },
+    {
+      title: "Page break",
+      description: "Insert a page break for printing.",
+      searchTerms: ["page", "break", "pagebreak", "print"],
+      icon: IconPageBreak,
+      command: ({ editor, range }: CommandProps) =>
+        editor.chain().focus().deleteRange(range).setPageBreak().run(),
+    },
+    {
+      title: "Footnote",
+      description: "Insert a footnote reference.",
+      searchTerms: ["footnote", "reference", "citation", "note"],
+      icon: IconSuperscript,
+      command: ({ editor, range }: CommandProps) => {
+        editor.chain().focus().deleteRange(range).run();
+        editor.commands.addFootnote();
+      },
     },
     {
       title: "Image",
@@ -262,7 +287,15 @@ const CommandGroups: SlashMenuGroupedItemsType = {
     {
       title: "Audio",
       description: "Upload any audio from your device.",
-      searchTerms: ["audio", "music", "sound", "mp3", "media", "file", "attachment"],
+      searchTerms: [
+        "audio",
+        "music",
+        "sound",
+        "mp3",
+        "media",
+        "file",
+        "attachment",
+      ],
       icon: IconMusic,
       command: ({ editor, range }) => {
         editor.chain().focus().deleteRange(range).run();
@@ -370,6 +403,26 @@ const CommandGroups: SlashMenuGroupedItemsType = {
           .run(),
     },
     {
+      title: "Base (Inline)",
+      description: "Insert an inline base on this page",
+      searchTerms: ["base", "database", "table", "grid", "spreadsheet"],
+      icon: IconTable,
+      requiresBases: true,
+      command: ({ editor, range }: CommandProps) => {
+        insertBaseEmbedBlock(editor, { range });
+      },
+    },
+    {
+      title: "Kanban",
+      description: "Insert a kanban board on this page",
+      searchTerms: ["kanban", "board", "cards", "status", "task", "database"],
+      icon: IconLayoutKanban,
+      requiresBases: true,
+      command: ({ editor, range }: CommandProps) => {
+        insertBaseEmbedBlock(editor, { range, template: "kanban" });
+      },
+    },
+    {
       title: "Toggle block",
       description: "Insert collapsible block.",
       searchTerms: ["collapsible", "block", "toggle", "details", "expand"],
@@ -450,7 +503,7 @@ const CommandGroups: SlashMenuGroupedItemsType = {
           .run(),
     },
     {
-      title: "Draw.io (diagrams.net) ",
+      title: "Draw.io (diagrams.net)",
       description: "Insert and design Drawio diagrams",
       searchTerms: ["drawio", "diagrams", "charts", "uml", "whiteboard"],
       icon: IconDrawio,
@@ -471,7 +524,7 @@ const CommandGroups: SlashMenuGroupedItemsType = {
       searchTerms: ["date", "today"],
       icon: IconCalendar,
       command: ({ editor, range }: CommandProps) => {
-        const currentDate = new Date().toLocaleDateString("en-US", {
+        const currentDate = new Date().toLocaleDateString(i18n.language, {
           year: "numeric",
           month: "long",
           day: "numeric",
@@ -482,6 +535,25 @@ const CommandGroups: SlashMenuGroupedItemsType = {
           .focus()
           .deleteRange(range)
           .insertContent(currentDate)
+          .run();
+      },
+    },
+    {
+      title: "Time",
+      description: "Insert current time",
+      searchTerms: ["time", "now", "clock"],
+      icon: IconClock,
+      command: ({ editor, range }: CommandProps) => {
+        const currentTime = new Date().toLocaleTimeString(i18n.language, {
+          hour: "numeric",
+          minute: "numeric",
+        });
+
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent(currentTime)
           .run();
       },
     },
@@ -500,12 +572,50 @@ const CommandGroups: SlashMenuGroupedItemsType = {
       },
     },
     {
+      title: "Emoji",
+      description: "Insert emoji.",
+      searchTerms: ["emoji", "icon", "smiley", "emoticon", "symbol", "reaction"],
+      icon: IconMoodSmile,
+      command: ({ editor, range }: CommandProps) => {
+        editor.chain().focus().deleteRange(range).insertContent(":").run();
+      },
+    },
+    {
       title: "Subpages (Child pages)",
       description: "List all subpages of the current page",
-      searchTerms: ["subpages", "child", "children", "nested", "hierarchy"],
+      searchTerms: [
+        "subpages",
+        "child",
+        "children",
+        "nested",
+        "hierarchy",
+        "toc",
+      ],
       icon: IconSitemap,
       command: ({ editor, range }: CommandProps) => {
         editor.chain().focus().deleteRange(range).insertSubpages().run();
+      },
+    },
+    {
+      title: "Synced block",
+      description: "Create a block that stays in sync across pages.",
+      searchTerms: [
+        "sync",
+        "synced",
+        "synced block",
+        "excerpt",
+        "transclusion",
+        "reusable",
+        "snippet",
+      ],
+      icon: IconRotate2,
+      command: ({ editor, range }: CommandProps) => {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertTransclusionSource()
+          .run();
       },
     },
     {
@@ -719,8 +829,10 @@ const CommandGroups: SlashMenuGroupedItemsType = {
 
 export const getSuggestionItems = ({
   query,
+  excludeItems,
 }: {
   query: string;
+  excludeItems?: Set<string>;
 }): SlashMenuGroupedItemsType => {
   const search = query.toLowerCase();
   const filteredGroups: SlashMenuGroupedItemsType = {};
@@ -737,18 +849,35 @@ export const getSuggestionItems = ({
 
   for (const [group, items] of Object.entries(CommandGroups)) {
     const filteredItems = items.filter((item) => {
+      if (excludeItems?.has(item.title)) return false;
+      const translatedTitle = i18n.t(item.title);
+      const translatedDescription = i18n.t(item.description);
       return (
         fuzzyMatch(search, item.title) ||
+        fuzzyMatch(search, translatedTitle) ||
         item.description.toLowerCase().includes(search) ||
+        translatedDescription.toLowerCase().includes(search) ||
         (item.searchTerms &&
-          item.searchTerms.some((term: string) => term.includes(search)))
+          item.searchTerms.some(
+            (term: string) =>
+              term.includes(search) ||
+              i18n.t(term).toLowerCase().includes(search),
+          ))
       );
     });
 
     if (filteredItems.length) {
       filteredGroups[group] = filteredItems.sort((a, b) => {
-        const aTitle = a.title.toLowerCase().includes(search) ? 0 : 1;
-        const bTitle = b.title.toLowerCase().includes(search) ? 0 : 1;
+        const aTitle =
+          a.title.toLowerCase().includes(search) ||
+          i18n.t(a.title).toLowerCase().includes(search)
+            ? 0
+            : 1;
+        const bTitle =
+          b.title.toLowerCase().includes(search) ||
+          i18n.t(b.title).toLowerCase().includes(search)
+            ? 0
+            : 1;
         return aTitle - bTitle;
       });
     }
