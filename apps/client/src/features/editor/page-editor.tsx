@@ -79,13 +79,7 @@ import { useEditorScroll } from "./hooks/use-editor-scroll";
 import { EditorAiMenu } from "@/ee/ai/components/editor/ai-menu/ai-menu";
 import { EditorLinkMenu } from "@/features/editor/components/link/link-menu";
 import ColumnsMenu from "@/features/editor/components/columns/columns-menu.tsx";
-import { TransclusionLookupProvider } from "@/features/editor/components/transclusion/transclusion-lookup-context";
-import { useTranslation } from "react-i18next";
-import {
-  acquireCollabSocket,
-  getCollabSocket,
-  releaseCollabSocket,
-} from "@/features/editor/collab-socket";
+import { NextcloudPicker } from "./components/nextcloud/nextcloud-picker";
 
 interface PageEditorProps {
   pageId: string;
@@ -476,6 +470,7 @@ function CollabPageEditor({
             <ExcalidrawMenu editor={editor} />
             <DrawioMenu editor={editor} />
             <ColumnsMenu editor={editor} />
+            <NextcloudPicker editor={editor} />
           </div>
         )}
         {editor && !editorIsEditable && (editable || canComment) && (

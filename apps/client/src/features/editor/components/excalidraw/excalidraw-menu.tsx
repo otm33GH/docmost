@@ -1,6 +1,7 @@
 import { BubbleMenu as BaseBubbleMenu } from "@tiptap/react/menus";
 import { findParentNode, posToDOMRect, useEditorState } from "@tiptap/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSetAtom } from "jotai";
 import { Node as PMNode } from "@tiptap/pm/model";
 import { isEditorReady } from "@docmost/editor-ext";
@@ -26,7 +27,10 @@ import {
   IconDownload,
   IconEdit,
   IconTrash,
+  IconX,
   IconZoomIn,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { getFileUrl } from "@/lib/config.ts";
@@ -35,7 +39,6 @@ import { svgStringToFile } from "@/lib";
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { IAttachment } from "@/features/attachments/types/attachment.types";
-import ReactClearModal from "react-clear-modal";
 import { useHandleLibrary } from "@excalidraw/excalidraw";
 import { localStorageLibraryAdapter } from "@/features/editor/components/excalidraw/excalidraw-utils.ts";
 import { useAltTextControl } from "@/features/editor/components/common/use-alt-text-control.tsx";
@@ -64,6 +67,7 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
   const isSavingRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
   const isInitialLoadRef = useRef(true);
   const lastFingerprintRef = useRef("");
 
@@ -284,17 +288,117 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
   useEffect(() => {
     if (!opened) return;
 
+    // Lock body scroll
+    document.body.style.overflow = "hidden";
+
     const interval = setInterval(() => {
       if (isDirtyRef.current && !isSavingRef.current) {
         saveData().catch(() => {});
       }
     }, 60_000);
 
-    return () => clearInterval(interval);
+    return () => {
+      document.body.style.overflow = "";
+      clearInterval(interval);
+    };
   }, [opened, saveData]);
+
+  const editModal = opened ? createPortal(
+    <div
+      style={
+        isFullscreen
+          ? {
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--mantine-color-body)",
+            }
+          : {
+              position: "fixed",
+              top: "5vh",
+              left: "5vw",
+              width: "90vw",
+              height: "90vh",
+              zIndex: 9999,
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--mantine-color-body)",
+              borderRadius: "var(--mantine-radius-md)",
+              boxShadow: "var(--mantine-shadow-lg)",
+              overflow: "hidden",
+            }
+      }
+    >
+      <Group
+        justify="flex-end"
+        wrap="nowrap"
+        bg="var(--mantine-color-body)"
+        p="xs"
+        style={{
+          borderBottom: "1px solid var(--mantine-color-default-border)",
+          flexShrink: 0,
+        }}
+      >
+        <Button onClick={handleSaveAndExit} size="compact-sm" loading={isSaving}>
+          {t("Save & Exit")}
+        </Button>
+        <ActionIcon
+          onClick={() => setIsFullscreen((v) => !v)}
+          variant="subtle"
+          size="md"
+          title={isFullscreen ? t("Reduce") : t("Expand")}
+        >
+          {isFullscreen ? (
+            <IconArrowsMinimize size={18} />
+          ) : (
+            <IconArrowsMaximize size={18} />
+          )}
+        </ActionIcon>
+        <ActionIcon
+          onClick={handleClose}
+          variant="subtle"
+          color="red"
+          size="md"
+          title={t("Exit")}
+        >
+          <IconX size={18} />
+        </ActionIcon>
+      </Group>
+
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        <Suspense fallback={null}>
+          <ExcalidrawComponent
+            excalidrawAPI={(api) => setExcalidrawAPI(api)}
+            onChange={(elements, _appState, files) => {
+              const fingerprint = `${elements.length}:${elements.reduce((s, e) => s + (e.version || 0), 0)}:${Object.keys(files).length}`;
+              if (isInitialLoadRef.current) {
+                lastFingerprintRef.current = fingerprint;
+                isInitialLoadRef.current = false;
+                return;
+              }
+              if (fingerprint !== lastFingerprintRef.current) {
+                lastFingerprintRef.current = fingerprint;
+                isDirtyRef.current = true;
+              }
+            }}
+            initialData={{
+              ...excalidrawData,
+              scrollToContent: true,
+            }}
+            theme={computedColorScheme}
+          />
+        </Suspense>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
 
   return (
     <>
+      {editModal}
+
       <BaseBubbleMenu
         editor={editor}
         pluginKey={`excalidraw-menu`}
@@ -311,166 +415,111 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
           altTextPanel
         ) : (
           <div className={classes.toolbar}>
-          <Tooltip position="top" label={t("Align left")} withinPortal={false}>
-            <ActionIcon
-              onClick={alignLeft}
-              size="lg"
-              aria-label={t("Align left")}
-              variant="subtle"
-              className={clsx({
-                [classes.active]: editorState?.isAlignLeft,
-              })}
+            <Tooltip position="top" label={t("Align left")} withinPortal={false}>
+              <ActionIcon
+                onClick={alignLeft}
+                size="lg"
+                aria-label={t("Align left")}
+                variant="subtle"
+                className={clsx({
+                  [classes.active]: editorState?.isAlignLeft,
+                })}
+              >
+                <IconLayoutAlignLeft size={18} />
+              </ActionIcon>
+            </Tooltip>
+
+            <Tooltip
+              position="top"
+              label={t("Align center")}
+              withinPortal={false}
             >
-              <IconLayoutAlignLeft size={18} />
-            </ActionIcon>
-          </Tooltip>
+              <ActionIcon
+                onClick={alignCenter}
+                size="lg"
+                aria-label={t("Align center")}
+                variant="subtle"
+                className={clsx({
+                  [classes.active]: editorState?.isAlignCenter,
+                })}
+              >
+                <IconLayoutAlignCenter size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip
-            position="top"
-            label={t("Align center")}
-            withinPortal={false}
-          >
-            <ActionIcon
-              onClick={alignCenter}
-              size="lg"
-              aria-label={t("Align center")}
-              variant="subtle"
-              className={clsx({
-                [classes.active]: editorState?.isAlignCenter,
-              })}
-            >
-              <IconLayoutAlignCenter size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <Tooltip position="top" label={t("Align right")} withinPortal={false}>
+              <ActionIcon
+                onClick={alignRight}
+                size="lg"
+                aria-label={t("Align right")}
+                variant="subtle"
+                className={clsx({
+                  [classes.active]: editorState?.isAlignRight,
+                })}
+              >
+                <IconLayoutAlignRight size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip position="top" label={t("Align right")} withinPortal={false}>
-            <ActionIcon
-              onClick={alignRight}
-              size="lg"
-              aria-label={t("Align right")}
-              variant="subtle"
-              className={clsx({
-                [classes.active]: editorState?.isAlignRight,
-              })}
-            >
-              <IconLayoutAlignRight size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <div className={classes.divider} />
 
-          <div className={classes.divider} />
+            {altTextButton}
 
-          {altTextButton}
+            <div className={classes.divider} />
 
-          <div className={classes.divider} />
+            <Tooltip position="top" label={t("Expand")} withinPortal={false}>
+              <ActionIcon
+                onClick={() =>
+                  editorState?.src &&
+                  setLightboxRequest({
+                    src: getFileUrl(editorState.src),
+                    type: "image",
+                  })
+                }
+                size="lg"
+                aria-label={t("Expand")}
+                variant="subtle"
+              >
+                <IconZoomIn size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip position="top" label={t("Expand")} withinPortal={false}>
-            <ActionIcon
-              onClick={() =>
-                editorState?.src &&
-                setLightboxRequest({
-                  src: getFileUrl(editorState.src),
-                  type: "image",
-                })
-              }
-              size="lg"
-              aria-label={t("Expand")}
-              variant="subtle"
-            >
-              <IconZoomIn size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <Tooltip position="top" label={t("Edit")} withinPortal={false}>
+              <ActionIcon
+                onClick={handleOpen}
+                size="lg"
+                aria-label={t("Edit")}
+                variant="subtle"
+                loading={isLoading}
+              >
+                <IconEdit size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip position="top" label={t("Edit")} withinPortal={false}>
-            <ActionIcon
-              onClick={handleOpen}
-              size="lg"
-              aria-label={t("Edit")}
-              variant="subtle"
-              loading={isLoading}
-            >
-              <IconEdit size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <Tooltip position="top" label={t("Download")} withinPortal={false}>
+              <ActionIcon
+                onClick={handleDownload}
+                size="lg"
+                aria-label={t("Download")}
+                variant="subtle"
+              >
+                <IconDownload size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip position="top" label={t("Download")} withinPortal={false}>
-            <ActionIcon
-              onClick={handleDownload}
-              size="lg"
-              aria-label={t("Download")}
-              variant="subtle"
-            >
-              <IconDownload size={18} />
-            </ActionIcon>
-          </Tooltip>
-
-          <Tooltip position="top" label={t("Delete")} withinPortal={false}>
-            <ActionIcon
-              onClick={handleDelete}
-              size="lg"
-              aria-label={t("Delete")}
-              variant="subtle"
-            >
-              <IconTrash size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <Tooltip position="top" label={t("Delete")} withinPortal={false}>
+              <ActionIcon
+                onClick={handleDelete}
+                size="lg"
+                aria-label={t("Delete")}
+                variant="subtle"
+              >
+                <IconTrash size={18} />
+              </ActionIcon>
+            </Tooltip>
           </div>
         )}
       </BaseBubbleMenu>
-
-      <ReactClearModal
-        style={{
-          backgroundColor: "rgba(0, 0, 0, 0.5)",
-          padding: 0,
-          zIndex: 200,
-        }}
-        isOpen={opened}
-        onRequestClose={handleClose}
-        disableCloseOnBgClick={true}
-        contentProps={{
-          style: {
-            padding: 0,
-            width: "90vw",
-          },
-        }}
-      >
-        <Group
-          justify="flex-end"
-          wrap="nowrap"
-          bg="var(--mantine-color-body)"
-          p="xs"
-        >
-          <Button onClick={handleSaveAndExit} size={"compact-sm"} loading={isSaving}>
-            {t("Save & Exit")}
-          </Button>
-          <Button onClick={handleClose} color="red" size={"compact-sm"}>
-            {t("Exit")}
-          </Button>
-        </Group>
-        <div style={{ height: "90vh" }}>
-          <Suspense fallback={null}>
-            <ExcalidrawComponent
-              excalidrawAPI={(api) => setExcalidrawAPI(api)}
-              onChange={(elements, _appState, files) => {
-                const fingerprint = `${elements.length}:${elements.reduce((s, e) => s + (e.version || 0), 0)}:${Object.keys(files).length}`;
-                if (isInitialLoadRef.current) {
-                  lastFingerprintRef.current = fingerprint;
-                  isInitialLoadRef.current = false;
-                  return;
-                }
-                if (fingerprint !== lastFingerprintRef.current) {
-                  lastFingerprintRef.current = fingerprint;
-                  isDirtyRef.current = true;
-                }
-              }}
-              initialData={{
-                ...excalidrawData,
-                scrollToContent: true,
-              }}
-              theme={computedColorScheme}
-            />
-          </Suspense>
-        </div>
-      </ReactClearModal>
     </>
   );
 }

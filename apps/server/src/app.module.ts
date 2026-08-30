@@ -28,8 +28,8 @@ import { LoggerModule } from './common/logger/logger.module';
 import { ClsModule } from 'nestjs-cls';
 import { NoopAuditModule } from './integrations/audit/audit.module';
 import { ThrottleModule } from './integrations/throttle/throttle.module';
+import { NextcloudModule } from './integrations/nextcloud/nextcloud.module';
 import { EncryptionModule } from './integrations/encryption/encryption.module';
-
 const enterpriseModules = [];
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -43,7 +43,6 @@ try {
     process.exit(1);
   }
 }
-
 @Module({
   imports: [
     ClsModule.forRoot({
@@ -64,7 +63,6 @@ try {
       useFactory: async (environmentService: EnvironmentService) => {
         const redisUrl = environmentService.getRedisUrl();
         const { family, tls } = parseRedisUrl(redisUrl);
-
         return {
           ttl: 5 * 1000,
           stores: [
@@ -99,6 +97,7 @@ try {
     TelemetryModule,
     ThrottleModule,
     ...enterpriseModules,
+    NextcloudModule,
   ],
   controllers: [AppController],
   providers: [

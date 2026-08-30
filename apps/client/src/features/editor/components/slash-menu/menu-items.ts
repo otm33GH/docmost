@@ -28,6 +28,8 @@ import {
   IconColumns3,
   IconColumns2,
   IconTag,
+  IconCloud,
+  IconCloudFilled,
   IconMoodSmile,
   IconRotate2,
   IconSuperscript,
@@ -63,6 +65,34 @@ import { insertBaseEmbedBlock } from "@/features/editor/components/base-embed/in
 
 const CommandGroups: SlashMenuGroupedItemsType = {
   basic: [
+    {
+      title: "Nextcloud",
+      description: "Embed a Nextcloud shared file",
+      searchTerms: ["nextcloud", "cloud", "share", "file"],
+      icon: IconCloud,
+      command: ({ editor, range }: CommandProps) => {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .setEmbed({ provider: "nextcloud" })
+          .run();
+      },
+    },
+    {
+      title: "Cloudreve",
+      description: "Embed Cloudreve shared file",
+      searchTerms: ["cloudreve", "cloud", "file", "share"],
+      icon: IconCloudFilled,
+      command: ({ editor, range }: CommandProps) => {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .setEmbed({ provider: "cloudreve" })
+          .run();
+      },
+    },
     {
       title: "Text",
       description: "Just start typing with plain text.",
