@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PageService } from './services/page.service';
+import { BacklinkService } from './services/backlink.service';
 import { PageAccessService } from './page-access/page-access.service';
 import { CreatePageDto } from './dto/create-page.dto';
 import { UpdatePageDto } from './dto/update-page.dto';
@@ -25,6 +26,7 @@ import { PageHistoryService } from './services/page-history.service';
 import { AuthUser } from '../../common/decorators/auth-user.decorator';
 import { AuthWorkspace } from '../../common/decorators/auth-workspace.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { OAuthScope } from '../../common/decorators/oauth-scope.decorator';
 import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
 import { Page, User, Workspace } from '@docmost/db/types/entity.types';
 import { SidebarPageDto } from './dto/sidebar-page.dto';
@@ -35,8 +37,12 @@ import {
 import SpaceAbilityFactory from '../casl/abilities/space-ability.factory';
 import { PageRepo } from '@docmost/db/repos/page/page.repo';
 import { RecentPageDto } from './dto/recent-page.dto';
+import { CreatedByUserDto } from './dto/created-by-user.dto';
 import { DuplicatePageDto } from './dto/duplicate-page.dto';
 import { DeletedPageDto } from './dto/deleted-page.dto';
+import { BacklinksListDto } from './dto/backlink.dto';
+import { LabelService } from '../label/label.service';
+import { AddLabelsDto, RemoveLabelDto } from '../label/dto/label.dto';
 import {
   jsonToHtml,
   jsonToMarkdown,
@@ -57,11 +63,14 @@ export class PageController {
     private readonly pageHistoryService: PageHistoryService,
     private readonly spaceAbility: SpaceAbilityFactory,
     private readonly pageAccessService: PageAccessService,
+    private readonly backlinkService: BacklinkService,
+    private readonly labelService: LabelService,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
   @Post('/info')
+  @OAuthScope('read')
   async getPage(@Body() dto: PageInfoDto, @AuthUser() user: User) {
     const page = await this.pageRepo.findById(dto.pageId, {
       includeSpace: true,
@@ -69,6 +78,7 @@ export class PageController {
       includeCreator: true,
       includeLastUpdatedBy: true,
       includeContributors: true,
+      includeDeletedBy: true,
     });
 
     if (!page) {
@@ -96,7 +106,102 @@ export class PageController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Post('labels')
+  async getPageLabels(
+    @Body() dto: PageIdDto,
+    @Body() pagination: PaginationOptions,
+    @AuthUser() user: User,
+  ) {
+    const page = await this.pageRepo.findById(dto.pageId);
+    if (!page) {
+      throw new NotFoundException('Page not found');
+    }
+
+    await this.pageAccessService.validateCanView(page, user);
+
+    return this.labelService.getPageLabels(page.id, pagination);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('labels/add')
+  async addPageLabels(
+    @Body() dto: AddLabelsDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    const page = await this.pageRepo.findById(dto.pageId);
+    if (!page || page.deletedAt) {
+      throw new NotFoundException('Page not found');
+    }
+
+    await this.pageAccessService.validateCanEdit(page, user);
+
+    return this.labelService.addLabelsToPage(
+      page.id,
+      dto.names,
+      workspace.id,
+    );
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('labels/remove')
+  async removePageLabel(
+    @Body() dto: RemoveLabelDto,
+    @AuthUser() user: User,
+  ) {
+    const page = await this.pageRepo.findById(dto.pageId);
+    if (!page || page.deletedAt) {
+      throw new NotFoundException('Page not found');
+    }
+
+    await this.pageAccessService.validateCanEdit(page, user);
+
+    await this.labelService.removeLabelFromPage(
+      page.id,
+      dto.labelId,
+      page.workspaceId,
+    );
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('backlinks-count')
+  async getBacklinksCount(
+    @Body() dto: PageIdDto,
+    @AuthUser() user: User,
+  ): Promise<{ incoming: number; outgoing: number }> {
+    const page = await this.pageRepo.findById(dto.pageId);
+    if (!page) {
+      throw new NotFoundException('Page not found');
+    }
+    await this.pageAccessService.validateCanView(page, user);
+
+    return this.backlinkService.countByPageId(page.id, user.id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('backlinks')
+  async getBacklinks(
+    @Body() dto: BacklinksListDto,
+    @Body() pagination: PaginationOptions,
+    @AuthUser() user: User,
+  ) {
+    const page = await this.pageRepo.findById(dto.pageId);
+    if (!page) {
+      throw new NotFoundException('Page not found');
+    }
+    await this.pageAccessService.validateCanView(page, user);
+
+    return this.backlinkService.findByPageId(
+      page.id,
+      dto.direction,
+      user.id,
+      pagination,
+    );
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Post('create')
+  @OAuthScope('write')
   async create(
     @Body() createPageDto: CreatePageDto,
     @AuthUser() user: User,
@@ -167,6 +272,7 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('update')
+  @OAuthScope('write')
   async update(@Body() updatePageDto: UpdatePageDto, @AuthUser() user: User) {
     const page = await this.pageRepo.findById(updatePageDto.pageId);
 
@@ -311,6 +417,7 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('recent')
+  @OAuthScope('read')
   async getRecentPages(
     @Body() recentPageDto: RecentPageDto,
     @Body() pagination: PaginationOptions,
@@ -334,6 +441,29 @@ export class PageController {
     }
 
     return this.pageService.getRecentPages(user.id, pagination);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('created-by-user')
+  async getCreatedByPages(
+    @Body() dto: CreatedByUserDto,
+    @Body() pagination: PaginationOptions,
+    @AuthUser() user: User,
+  ) {
+    const targetUserId = dto.userId ?? user.id;
+
+    if (dto.spaceId) {
+      const ability = await this.spaceAbility.createForUser(
+        user,
+        dto.spaceId,
+      );
+
+      if (ability.cannot(SpaceCaslAction.Read, SpaceCaslSubject.Page)) {
+        throw new ForbiddenException();
+      }
+    }
+
+    return this.pageService.getCreatedByPages(targetUserId, user.id, pagination, dto.spaceId);
   }
 
   @HttpCode(HttpStatus.OK)
@@ -402,6 +532,7 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('/sidebar-pages')
+  @OAuthScope('read')
   async getSidebarPages(
     @Body() dto: SidebarPageDto,
     @Body() pagination: PaginationOptions,
@@ -444,6 +575,7 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('move-to-space')
+  @OAuthScope('write')
   async movePageToSpace(
     @Body() dto: MovePageToSpaceDto,
     @AuthUser() user: User,
@@ -497,6 +629,7 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('duplicate')
+  @OAuthScope('write')
   async duplicatePage(@Body() dto: DuplicatePageDto, @AuthUser() user: User) {
     const copiedPage = await this.pageRepo.findById(dto.pageId);
     if (!copiedPage) {
@@ -581,6 +714,7 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('move')
+  @OAuthScope('write')
   async movePage(@Body() dto: MovePageDto, @AuthUser() user: User) {
     const movedPage = await this.pageRepo.findById(dto.pageId);
     if (!movedPage) {

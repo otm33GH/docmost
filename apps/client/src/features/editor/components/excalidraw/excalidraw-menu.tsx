@@ -2,7 +2,9 @@ import { BubbleMenu as BaseBubbleMenu } from "@tiptap/react/menus";
 import { findParentNode, posToDOMRect, useEditorState } from "@tiptap/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSetAtom } from "jotai";
 import { Node as PMNode } from "@tiptap/pm/model";
+import { isEditorReady } from "@docmost/editor-ext";
 import {
   EditorMenuProps,
   ShouldShowProps,
@@ -26,6 +28,9 @@ import {
   IconEdit,
   IconTrash,
   IconX,
+  IconZoomIn,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { getFileUrl } from "@/lib/config.ts";
@@ -36,6 +41,8 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { IAttachment } from "@/features/attachments/types/attachment.types";
 import { useHandleLibrary } from "@excalidraw/excalidraw";
 import { localStorageLibraryAdapter } from "@/features/editor/components/excalidraw/excalidraw-utils.ts";
+import { useAltTextControl } from "@/features/editor/components/common/use-alt-text-control.tsx";
+import { lightboxRequestAtom } from "@/features/editor/atoms/editor-atoms";
 import classes from "../common/toolbar-menu.module.css";
 
 const ExcalidrawComponent = lazy(() =>
@@ -46,6 +53,7 @@ const ExcalidrawComponent = lazy(() =>
 
 export function ExcalidrawMenu({ editor }: EditorMenuProps) {
   const { t } = useTranslation();
+  const setLightboxRequest = useSetAtom(lightboxRequestAtom);
   const [opened, { open, close }] = useDisclosure(false);
   const [excalidrawAPI, setExcalidrawAPI] =
     useState<ExcalidrawImperativeAPI>(null);
@@ -57,6 +65,9 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
   const computedColorScheme = useComputedColorScheme();
   const isDirtyRef = useRef(false);
   const isSavingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
   const isInitialLoadRef = useRef(true);
   const lastFingerprintRef = useRef("");
 
@@ -75,6 +86,7 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
         isAlignRight: ctx.editor.isActive("excalidraw", { align: "right" }),
         src: excalidrawAttr?.src || null,
         attachmentId: excalidrawAttr?.attachmentId || null,
+        alt: excalidrawAttr?.alt || "",
       };
     },
   });
@@ -93,7 +105,7 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
   );
 
   const getReferencedVirtualElement = useCallback(() => {
-    if (!editor) return;
+    if (!isEditorReady(editor)) return;
     const { selection } = editor.state;
     const predicate = (node: PMNode) => node.type.name === "excalidraw";
     const parent = findParentNode(predicate)(selection);
@@ -151,9 +163,20 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
     editor.commands.deleteSelection();
   }, [editor]);
 
+  const {
+    button: altTextButton,
+    panel: altTextPanel,
+    isEditing: isEditingAlt,
+  } = useAltTextControl({
+    editor,
+    nodeName: "excalidraw",
+    currentAlt: editorState?.alt || "",
+  });
+
   const handleOpen = useCallback(async () => {
     if (!editorState?.src) return;
 
+    setIsLoading(true);
     try {
       const url = getFileUrl(editorState.src);
       const request = await fetch(url, {
@@ -167,6 +190,7 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
     } catch (err) {
       console.error(err);
     } finally {
+      setIsLoading(false);
       isDirtyRef.current = false;
       isInitialLoadRef.current = true;
       open();
@@ -179,6 +203,7 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
     }
 
     isSavingRef.current = true;
+    setIsSaving(true);
 
     try {
       const { exportToSvg } = await import("@excalidraw/excalidraw");
@@ -224,6 +249,7 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
       isDirtyRef.current = false;
     } finally {
       isSavingRef.current = false;
+      setIsSaving(false);
     }
   }, [editor, excalidrawAPI, editorState?.attachmentId]);
 
@@ -279,14 +305,31 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
 
   const editModal = opened ? createPortal(
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--mantine-color-body)",
-      }}
+      style={
+        isFullscreen
+          ? {
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--mantine-color-body)",
+            }
+          : {
+              position: "fixed",
+              top: "5vh",
+              left: "5vw",
+              width: "90vw",
+              height: "90vh",
+              zIndex: 9999,
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--mantine-color-body)",
+              borderRadius: "var(--mantine-radius-md)",
+              boxShadow: "var(--mantine-shadow-lg)",
+              overflow: "hidden",
+            }
+      }
     >
       <Group
         justify="flex-end"
@@ -298,9 +341,21 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
           flexShrink: 0,
         }}
       >
-        <Button onClick={handleSaveAndExit} size="compact-sm">
+        <Button onClick={handleSaveAndExit} size="compact-sm" loading={isSaving}>
           {t("Save & Exit")}
         </Button>
+        <ActionIcon
+          onClick={() => setIsFullscreen((v) => !v)}
+          variant="subtle"
+          size="md"
+          title={isFullscreen ? t("Reduce") : t("Expand")}
+        >
+          {isFullscreen ? (
+            <IconArrowsMinimize size={18} />
+          ) : (
+            <IconArrowsMaximize size={18} />
+          )}
+        </ActionIcon>
         <ActionIcon
           onClick={handleClose}
           variant="subtle"
@@ -356,88 +411,114 @@ export function ExcalidrawMenu({ editor }: EditorMenuProps) {
         }}
         shouldShow={shouldShow}
       >
-        <div className={classes.toolbar}>
-          <Tooltip position="top" label={t("Align left")} withinPortal={false}>
-            <ActionIcon
-              onClick={alignLeft}
-              size="lg"
-              aria-label={t("Align left")}
-              variant="subtle"
-              className={clsx({
-                [classes.active]: editorState?.isAlignLeft,
-              })}
-            >
-              <IconLayoutAlignLeft size={18} />
-            </ActionIcon>
-          </Tooltip>
+        {isEditingAlt ? (
+          altTextPanel
+        ) : (
+          <div className={classes.toolbar}>
+            <Tooltip position="top" label={t("Align left")} withinPortal={false}>
+              <ActionIcon
+                onClick={alignLeft}
+                size="lg"
+                aria-label={t("Align left")}
+                variant="subtle"
+                className={clsx({
+                  [classes.active]: editorState?.isAlignLeft,
+                })}
+              >
+                <IconLayoutAlignLeft size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip
-            position="top"
-            label={t("Align center")}
-            withinPortal={false}
-          >
-            <ActionIcon
-              onClick={alignCenter}
-              size="lg"
-              aria-label={t("Align center")}
-              variant="subtle"
-              className={clsx({
-                [classes.active]: editorState?.isAlignCenter,
-              })}
+            <Tooltip
+              position="top"
+              label={t("Align center")}
+              withinPortal={false}
             >
-              <IconLayoutAlignCenter size={18} />
-            </ActionIcon>
-          </Tooltip>
+              <ActionIcon
+                onClick={alignCenter}
+                size="lg"
+                aria-label={t("Align center")}
+                variant="subtle"
+                className={clsx({
+                  [classes.active]: editorState?.isAlignCenter,
+                })}
+              >
+                <IconLayoutAlignCenter size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <Tooltip position="top" label={t("Align right")} withinPortal={false}>
-            <ActionIcon
-              onClick={alignRight}
-              size="lg"
-              aria-label={t("Align right")}
-              variant="subtle"
-              className={clsx({
-                [classes.active]: editorState?.isAlignRight,
-              })}
-            >
-              <IconLayoutAlignRight size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <Tooltip position="top" label={t("Align right")} withinPortal={false}>
+              <ActionIcon
+                onClick={alignRight}
+                size="lg"
+                aria-label={t("Align right")}
+                variant="subtle"
+                className={clsx({
+                  [classes.active]: editorState?.isAlignRight,
+                })}
+              >
+                <IconLayoutAlignRight size={18} />
+              </ActionIcon>
+            </Tooltip>
 
-          <div className={classes.divider} />
+            <div className={classes.divider} />
 
-          <Tooltip position="top" label={t("Edit")} withinPortal={false}>
-            <ActionIcon
-              onClick={handleOpen}
-              size="lg"
-              aria-label={t("Edit")}
-              variant="subtle"
-            >
-              <IconEdit size={18} />
-            </ActionIcon>
-          </Tooltip>
+            {altTextButton}
 
-          <Tooltip position="top" label={t("Download")} withinPortal={false}>
-            <ActionIcon
-              onClick={handleDownload}
-              size="lg"
-              aria-label={t("Download")}
-              variant="subtle"
-            >
-              <IconDownload size={18} />
-            </ActionIcon>
-          </Tooltip>
+            <div className={classes.divider} />
 
-          <Tooltip position="top" label={t("Delete")} withinPortal={false}>
-            <ActionIcon
-              onClick={handleDelete}
-              size="lg"
-              aria-label={t("Delete")}
-              variant="subtle"
-            >
-              <IconTrash size={18} />
-            </ActionIcon>
-          </Tooltip>
-        </div>
+            <Tooltip position="top" label={t("Expand")} withinPortal={false}>
+              <ActionIcon
+                onClick={() =>
+                  editorState?.src &&
+                  setLightboxRequest({
+                    src: getFileUrl(editorState.src),
+                    type: "image",
+                  })
+                }
+                size="lg"
+                aria-label={t("Expand")}
+                variant="subtle"
+              >
+                <IconZoomIn size={18} />
+              </ActionIcon>
+            </Tooltip>
+
+            <Tooltip position="top" label={t("Edit")} withinPortal={false}>
+              <ActionIcon
+                onClick={handleOpen}
+                size="lg"
+                aria-label={t("Edit")}
+                variant="subtle"
+                loading={isLoading}
+              >
+                <IconEdit size={18} />
+              </ActionIcon>
+            </Tooltip>
+
+            <Tooltip position="top" label={t("Download")} withinPortal={false}>
+              <ActionIcon
+                onClick={handleDownload}
+                size="lg"
+                aria-label={t("Download")}
+                variant="subtle"
+              >
+                <IconDownload size={18} />
+              </ActionIcon>
+            </Tooltip>
+
+            <Tooltip position="top" label={t("Delete")} withinPortal={false}>
+              <ActionIcon
+                onClick={handleDelete}
+                size="lg"
+                aria-label={t("Delete")}
+                variant="subtle"
+              >
+                <IconTrash size={18} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
+        )}
       </BaseBubbleMenu>
     </>
   );

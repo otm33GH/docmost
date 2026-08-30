@@ -1,5 +1,4 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
 import { useTranslation } from "react-i18next";
 import { useSharePageQuery } from "@/features/share/queries/share-query.ts";
 import { Container } from "@mantine/core";
@@ -9,8 +8,12 @@ import { extractPageSlugId } from "@/lib";
 import { Error404 } from "@/components/ui/error-404.tsx";
 import ShareBranding from "@/features/share/components/share-branding.tsx";
 import { useAtomValue } from "jotai";
-import { sharedTreeDataAtom } from "@/features/share/atoms/shared-page-atom.ts";
+import {
+  sharedPageFullWidthAtom,
+  sharedTreeDataAtom,
+} from "@/features/share/atoms/shared-page-atom.ts";
 import { isPageInTree } from "@/features/share/utils.ts";
+import { DocumentTitle } from "@/components/ui/document-title.tsx";
 
 export default function SharedPage() {
   const { t } = useTranslation();
@@ -23,6 +26,7 @@ export default function SharedPage() {
   });
 
   const sharedTreeData = useAtomValue(sharedTreeDataAtom);
+  const fullWidth = useAtomValue(sharedPageFullWidthAtom);
 
   useEffect(() => {
     if (shareId && data) {
@@ -52,19 +56,22 @@ export default function SharedPage() {
 
   return (
     <div>
-      <Helmet>
-        <title>{`${data?.page?.title || t("untitled")}`}</title>
+      <DocumentTitle
+        title={data?.page?.title || t("untitled")}
+        withAppName={false}
+      >
         {!data?.share.searchIndexing && (
           <meta name="robots" content="noindex" />
         )}
-      </Helmet>
+      </DocumentTitle>
 
-      <Container size={900} p={0}>
+      <Container fluid={fullWidth} size={fullWidth ? undefined : 900} p={0}>
         <ReadonlyPageEditor
           key={data.page.id}
           title={data.page.title}
           content={data.page.content}
           pageId={data.page.id}
+          shareId={data.share.id}
         />
       </Container>
 

@@ -57,6 +57,22 @@ export class SpaceRepo {
       .executeTakeFirst();
   }
 
+  async findPersonalSpace(
+    userId: string,
+    workspaceId: string,
+    trx?: KyselyTransaction,
+  ): Promise<Space | undefined> {
+    const db = dbOrTx(this.db, trx);
+    return db
+      .selectFrom('spaces')
+      .selectAll('spaces')
+      .where('workspaceId', '=', workspaceId)
+      .where('creatorId', '=', userId)
+      .where('isPersonal', '=', true)
+      .where('deletedAt', 'is', null)
+      .executeTakeFirst();
+  }
+
   async slugExists(
     slug: string,
     workspaceId: string,
@@ -214,6 +230,7 @@ export class SpaceRepo {
 
     this.eventEmitter.emit(EventName.SPACE_DELETED, {
       spaceId,
+      workspaceId,
     });
   }
 }

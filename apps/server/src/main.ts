@@ -12,6 +12,11 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyCookie from '@fastify/cookie';
 import fastifyIp from 'fastify-ip';
 import { InternalLogFilter } from './common/logger/internal-log-filter';
+import { EnvironmentService } from './integrations/environment/environment.service';
+import {
+  resolveFrameHeader,
+  resolveFrameHeadersForPath,
+} from './common/helpers';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -37,7 +42,14 @@ async function bootstrap() {
   app.useLogger(app.get(PinoLogger));
 
   app.setGlobalPrefix('api', {
-    exclude: ['robots.txt', 'share/:shareId/p/:pageSlug', 'mcp'],
+    exclude: [
+      'robots.txt',
+      'share/:shareId/p/:pageSlug',
+      'mcp',
+      '.well-known/oauth-authorization-server',
+      '.well-known/oauth-protected-resource',
+      '.well-known/oauth-protected-resource/mcp',
+    ],
   });
 
   const reflector = app.get(Reflector);
@@ -49,6 +61,54 @@ async function bootstrap() {
   await app.register(fastifyIp);
   await app.register(fastifyMultipart);
   await app.register(fastifyCookie);
+
+  const environmentService = app.get(EnvironmentService);
+  const frameHeader = resolveFrameHeader(
+    environmentService.isIframeEmbedAllowed(),
+    environmentService.getIframeAllowedOrigins(),
+  );
+  // Skipped routes:
+  //   /api/files/ - attachment controller sets its own CSP we'd overwrite
+  //   /share/     - public share pages are safe to embed
+  const frameHeaderSkippedPrefixes = ['/api/files/', '/share/'];
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onSend', (req, reply, payload, done) => {
+      if (frameHeaderSkippedPrefixes.some((p) => req.url.startsWith(p))) {
+        return done(null, payload);
+      }
+      const path = req.url.split('?')[0];
+      // Force-denies the oauth consent screen even when the global frame header is absent.
+      for (const header of resolveFrameHeadersForPath(path, frameHeader)) {
+        reply.header(header.name, header.value);
+      }
+      done(null, payload);
+    });
+
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onRequest', (request, _reply, done) => {
+      (request.raw as any).ip = request.ip;
+      done();
+    });
+
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addContentTypeParser(
+      'application/scim+json',
+      { parseAs: 'string' },
+      (_, body, done) => {
+        try {
+          const json = JSON.parse(body.toString());
+          done(null, json);
+        } catch (err: any) {
+          done(err);
+        }
+      },
+    );
 
   app
     .getHttpAdapter()

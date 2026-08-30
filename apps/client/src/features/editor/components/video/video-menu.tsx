@@ -1,7 +1,9 @@
 import { BubbleMenu as BaseBubbleMenu } from "@tiptap/react/menus";
 import { findParentNode, posToDOMRect, useEditorState } from "@tiptap/react";
 import { useCallback } from "react";
+import { useSetAtom } from "jotai";
 import { Node as PMNode } from "@tiptap/pm/model";
+import { isEditorReady } from "@docmost/editor-ext";
 import {
   EditorMenuProps,
   ShouldShowProps,
@@ -14,13 +16,17 @@ import {
   IconLayoutAlignRight,
   IconDownload,
   IconTrash,
+  IconZoomIn,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { getFileUrl } from "@/lib/config.ts";
+import { useAltTextControl } from "@/features/editor/components/common/use-alt-text-control.tsx";
+import { lightboxRequestAtom } from "@/features/editor/atoms/editor-atoms";
 import classes from "../common/toolbar-menu.module.css";
 
 export function VideoMenu({ editor }: EditorMenuProps) {
   const { t } = useTranslation();
+  const setLightboxRequest = useSetAtom(lightboxRequestAtom);
 
   const editorState = useEditorState({
     editor,
@@ -37,6 +43,7 @@ export function VideoMenu({ editor }: EditorMenuProps) {
         isAlignCenter: ctx.editor.isActive("video", { align: "center" }),
         isAlignRight: ctx.editor.isActive("video", { align: "right" }),
         src: videoAttrs?.src || null,
+        alt: videoAttrs?.alt || "",
       };
     },
   });
@@ -53,7 +60,7 @@ export function VideoMenu({ editor }: EditorMenuProps) {
   );
 
   const getReferencedVirtualElement = useCallback(() => {
-    if (!editor) return;
+    if (!isEditorReady(editor)) return;
     const { selection } = editor.state;
     const predicate = (node: PMNode) => node.type.name === "video";
     const parent = findParentNode(predicate)(selection);
@@ -111,6 +118,16 @@ export function VideoMenu({ editor }: EditorMenuProps) {
     editor.commands.deleteSelection();
   }, [editor]);
 
+  const {
+    button: altTextButton,
+    panel: altTextPanel,
+    isEditing: isEditingAlt,
+  } = useAltTextControl({
+    editor,
+    nodeName: "video",
+    currentAlt: editorState?.alt || "",
+  });
+
   return (
     <BaseBubbleMenu
       editor={editor}
@@ -124,7 +141,10 @@ export function VideoMenu({ editor }: EditorMenuProps) {
       }}
       shouldShow={shouldShow}
     >
-      <div className={classes.toolbar}>
+      {isEditingAlt ? (
+        altTextPanel
+      ) : (
+        <div className={classes.toolbar}>
         <Tooltip position="top" label={t("Align left")} withinPortal={false}>
           <ActionIcon
             onClick={alignLeft}
@@ -163,6 +183,27 @@ export function VideoMenu({ editor }: EditorMenuProps) {
 
         <div className={classes.divider} />
 
+        {altTextButton}
+
+        <div className={classes.divider} />
+
+        <Tooltip position="top" label={t("Expand")} withinPortal={false}>
+          <ActionIcon
+            onClick={() =>
+              editorState?.src &&
+              setLightboxRequest({
+                src: getFileUrl(editorState.src),
+                type: "video",
+              })
+            }
+            size="lg"
+            aria-label={t("Expand")}
+            variant="subtle"
+          >
+            <IconZoomIn size={18} />
+          </ActionIcon>
+        </Tooltip>
+
         <Tooltip position="top" label={t("Download")} withinPortal={false}>
           <ActionIcon
             onClick={handleDownload}
@@ -184,7 +225,8 @@ export function VideoMenu({ editor }: EditorMenuProps) {
             <IconTrash size={18} />
           </ActionIcon>
         </Tooltip>
-      </div>
+        </div>
+      )}
     </BaseBubbleMenu>
   );
 }

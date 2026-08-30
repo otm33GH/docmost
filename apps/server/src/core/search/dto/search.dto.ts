@@ -1,18 +1,20 @@
 import {
+  IsArray,
   IsBoolean,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
 } from 'class-validator';
 
 export class SearchDTO {
-  @IsNotEmpty()
-  @IsString()
-  query: string;
-
   @IsOptional()
   @IsString()
+  query?: string;
+
+  @IsOptional()
+  @IsUUID()
   spaceId: string;
 
   @IsOptional()
@@ -20,8 +22,17 @@ export class SearchDTO {
   shareId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   creatorId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  labelIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  titleOnly?: boolean;
 
   @IsOptional()
   @IsNumber()
@@ -38,7 +49,7 @@ export class SearchShareDTO extends SearchDTO {
   shareId: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   spaceId: string;
 }
 

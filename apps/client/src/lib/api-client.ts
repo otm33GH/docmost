@@ -10,7 +10,12 @@ const api: AxiosInstance = axios.create({
 api.interceptors.response.use(
   (response) => {
     // we need the response headers for these endpoints
-    const exemptEndpoints = ["/api/pages/export", "/api/spaces/export"];
+    const exemptEndpoints = [
+      "/api/pages/export",
+      "/api/spaces/export",
+      "/api/docx-export",
+      "/api/bases/export-csv",
+    ];
     if (response.request.responseURL) {
       const path = new URL(response.request.responseURL)?.pathname;
       if (path && exemptEndpoints.includes(path)) {
@@ -71,6 +76,8 @@ function redirectToLogin() {
     APP_ROUTE.AUTH.MFA_CHALLENGE,
     APP_ROUTE.AUTH.MFA_SETUP_REQUIRED,
     "/invites",
+    // the oauth consent page redirects to login itself, preserving its query string
+    "/oauth/consent",
   ];
   if (!exemptPaths.some((path) => window.location.pathname.startsWith(path))) {
     const redirectTo = window.location.pathname;

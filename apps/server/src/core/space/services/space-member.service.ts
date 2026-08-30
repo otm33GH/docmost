@@ -17,6 +17,7 @@ import { UpdateSpaceMemberRoleDto } from '../dto/update-space-member-role.dto';
 import { SpaceRole } from '../../../common/helpers/types/permission';
 import { CursorPaginationResult } from '@docmost/db/pagination/cursor-pagination';
 import { WatcherRepo } from '@docmost/db/repos/watcher/watcher.repo';
+import { FavoriteRepo } from '@docmost/db/repos/favorite/favorite.repo';
 import { executeTx } from '@docmost/db/utils';
 import { AuditEvent, AuditResource } from '../../../common/events/audit-events';
 import {
@@ -31,6 +32,7 @@ export class SpaceMemberService {
     private groupUserRepo: GroupUserRepo,
     private spaceRepo: SpaceRepo,
     private watcherRepo: WatcherRepo,
+    private favoriteRepo: FavoriteRepo,
     @InjectKysely() private readonly db: KyselyDB,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
   ) {}
@@ -272,6 +274,12 @@ export class SpaceMemberService {
         dto.spaceId,
         { trx },
       );
+
+      await this.favoriteRepo.deleteByUsersWithoutSpaceAccess(
+        affectedUserIds,
+        dto.spaceId,
+        { trx },
+      );
     });
 
     this.auditService.log({
@@ -331,15 +339,25 @@ export class SpaceMemberService {
       return;
     }
 
-    if (spaceMember.role === SpaceRole.ADMIN) {
-      await this.validateLastAdmin(dto.spaceId);
-    }
+    await executeTx(this.db, async (trx) => {
+      await trx
+        .selectFrom('spaces')
+        .select('id')
+        .where('id', '=', dto.spaceId)
+        .forUpdate()
+        .executeTakeFirst();
 
-    await this.spaceMemberRepo.updateSpaceMember(
-      { role: dto.role },
-      spaceMember.id,
-      dto.spaceId,
-    );
+      if (spaceMember.role === SpaceRole.ADMIN) {
+        await this.validateLastAdmin(dto.spaceId, trx);
+      }
+
+      await this.spaceMemberRepo.updateSpaceMember(
+        { role: dto.role },
+        spaceMember.id,
+        dto.spaceId,
+        trx,
+      );
+    });
 
     this.auditService.log({
       event: AuditEvent.SPACE_MEMBER_ROLE_CHANGED,
@@ -360,10 +378,14 @@ export class SpaceMemberService {
     });
   }
 
-  async validateLastAdmin(spaceId: string): Promise<void> {
+  async validateLastAdmin(
+    spaceId: string,
+    trx?: KyselyTransaction,
+  ): Promise<void> {
     const spaceOwnerCount = await this.spaceMemberRepo.roleCountBySpaceId(
       SpaceRole.ADMIN,
       spaceId,
+      trx,
     );
     if (spaceOwnerCount === 1) {
       throw new BadRequestException(

@@ -38,6 +38,8 @@ export function SwitchSpace({
       shadow="md"
       opened={opened}
       onChange={toggle}
+      trapFocus
+      returnFocus
     >
       <Popover.Target>
         <Button
@@ -68,6 +70,7 @@ export function SwitchSpace({
           onChange={(space) => handleSelect(space.slug)}
           width={300}
           opened={true}
+          withinPortal={false}
         />
       </Popover.Dropdown>
     </Popover>

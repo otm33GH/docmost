@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import EmojiCommand from "@/features/editor/extensions/emoji-command";
 import mentionRenderItems from "@/features/editor/components/mention/mention-suggestion";
 import MentionView from "@/features/editor/components/mention/mention-view";
+import { platformModifierKey } from "@/lib";
 
 interface CommentEditorProps {
   defaultContent?: any;
@@ -18,6 +19,7 @@ interface CommentEditorProps {
   editable: boolean;
   placeholder?: string;
   autofocus?: boolean;
+  surface?: "default" | "muted";
 }
 
 const CommentEditor = forwardRef(
@@ -29,6 +31,7 @@ const CommentEditor = forwardRef(
       editable,
       placeholder,
       autofocus,
+      surface,
     }: CommentEditorProps,
     ref,
   ) => {
@@ -65,6 +68,9 @@ const CommentEditor = forwardRef(
         }),
       ],
       editorProps: {
+        attributes: {
+          "aria-label": placeholder || t("Comment"),
+        },
         handleDOMEvents: {
           keydown: (_view, event) => {
             if (
@@ -83,7 +89,7 @@ const CommentEditor = forwardRef(
               }
             }
 
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            if (platformModifierKey(event) && event.code === "Enter") {
               event.preventDefault();
               if (onSave) onSave();
 
@@ -97,6 +103,7 @@ const CommentEditor = forwardRef(
       },
       content: defaultContent,
       editable,
+      textDirection: "auto",
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
       autofocus: (autofocus && "end") || false,
@@ -106,22 +113,24 @@ const CommentEditor = forwardRef(
     // websocket on another browser). Skip for editable editors to avoid
     // resetting the cursor position on every keystroke.
     useEffect(() => {
-      if (!editable && commentEditor && defaultContent) {
+      if (!editable && commentEditor && !commentEditor.isDestroyed && defaultContent) {
         commentEditor.commands.setContent(defaultContent);
       }
     }, [defaultContent, editable, commentEditor]);
 
     useEffect(() => {
       setTimeout(() => {
-        if (autofocus) {
-          commentEditor?.commands.focus("end");
+        if (autofocus && commentEditor && !commentEditor.isDestroyed) {
+          commentEditor.commands.focus("end");
         }
       }, 10);
     }, [commentEditor, autofocus]);
 
     useImperativeHandle(ref, () => ({
       clearContent: () => {
-        commentEditor.commands.clearContent();
+        if (commentEditor && !commentEditor.isDestroyed) {
+          commentEditor.commands.clearContent();
+        }
       },
     }));
 
@@ -130,6 +139,7 @@ const CommentEditor = forwardRef(
         ref={focusRef}
         className={classes.commentEditor}
         data-editable={editable || undefined}
+        data-surface={surface}
       >
         <EditorContent
           editor={commentEditor}

@@ -1,4 +1,5 @@
 import { StarterKit } from '@tiptap/starter-kit';
+import { Document } from '@tiptap/extension-document';
 import { TextAlign } from '@tiptap/extension-text-align';
 import { Superscript } from '@tiptap/extension-superscript';
 import SubScript from '@tiptap/extension-subscript';
@@ -26,6 +27,7 @@ import {
   TiptapVideo,
   TiptapAudio,
   TiptapPdf,
+  PageBreak,
   TrailingNode,
   Attachment,
   Drawio,
@@ -34,15 +36,28 @@ import {
   Mention,
   Subpages,
   Highlight,
+  Indent,
   UniqueID,
   Columns,
   Column,
   Status,
   addUniqueIdsToDoc,
   htmlToMarkdown,
+  TransclusionSource,
+  TransclusionReference,
+  BaseEmbed,
+  Footnotes,
+  Footnote,
+  FootnoteReference,
 } from '@docmost/editor-ext';
-import { generateText, getSchema, JSONContent } from '@tiptap/core';
+import {
+  extensions as coreExtensions,
+  generateText,
+  getSchema,
+  JSONContent,
+} from '@tiptap/core';
 import { generateHTML, generateJSON } from '../common/helpers/prosemirror/html';
+import { collapseBlankLines } from '../common/helpers';
 // @tiptap/html library works best for generating prosemirror json state but not HTML
 // see: https://github.com/ueberdosis/tiptap/issues/5352
 // see:https://github.com/ueberdosis/tiptap/issues/4089
@@ -52,18 +67,24 @@ import * as Y from 'yjs';
 import { Logger } from '@nestjs/common';
 
 export const tiptapExtensions = [
+  coreExtensions.TextDirection.configure({ direction: 'auto' }),
   StarterKit.configure({
+    document: false,
     codeBlock: false,
     link: false,
     trailingNode: false,
     heading: false,
   }),
+  Document.extend({
+    content: 'block+ footnotes?',
+  }),
   Heading,
   UniqueID.configure({
-    types: ['heading', 'paragraph'],
+    types: ['heading', 'paragraph', 'transclusionSource'],
   }),
   Comment,
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
+  Indent,
   TaskList,
   TaskItem.configure({
     nested: true,
@@ -90,6 +111,7 @@ export const tiptapExtensions = [
   TiptapVideo,
   TiptapAudio,
   TiptapPdf,
+  PageBreak,
   Callout,
   Attachment,
   CustomCodeBlock,
@@ -101,6 +123,12 @@ export const tiptapExtensions = [
   Columns,
   Column,
   Status,
+  TransclusionSource,
+  TransclusionReference,
+  BaseEmbed,
+  Footnotes,
+  Footnote,
+  FootnoteReference,
 ] as any;
 
 export function jsonToHtml(tiptapJson: any) {
@@ -119,7 +147,7 @@ export function htmlToJson(html: string) {
 }
 
 export function jsonToText(tiptapJson: JSONContent) {
-  return generateText(tiptapJson, tiptapExtensions);
+  return collapseBlankLines(generateText(tiptapJson, tiptapExtensions));
 }
 
 export function jsonToNode(tiptapJson: JSONContent) {
@@ -141,6 +169,18 @@ export function jsonToNode(tiptapJson: JSONContent) {
 
 export function getPageId(documentName: string) {
   return documentName.split('.')[1];
+}
+
+export function isEmptyParagraphDoc(tiptapJson: JSONContent): boolean {
+  if (!tiptapJson || tiptapJson.type !== 'doc') return false;
+  const content = tiptapJson.content;
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const child = content[0];
+  if (!child || child.type !== 'paragraph') return false;
+  return (
+    !child.content ||
+    (Array.isArray(child.content) && child.content.length === 0)
+  );
 }
 
 function stripUnknownNodes(

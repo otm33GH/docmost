@@ -5,15 +5,21 @@ import {
 } from "@/features/editor/components/slash-menu/types";
 import {
   ActionIcon,
+  Badge,
   Group,
   Paper,
   ScrollArea,
   Text,
+  Tooltip,
   UnstyledButton,
+  VisuallyHidden,
 } from "@mantine/core";
 import classes from "./slash-menu.module.css";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
+import { useHasFeature } from "@/ee/hooks/use-feature";
+import { Feature } from "@/ee/features";
+import { useUpgradeLabel } from "@/ee/hooks/use-upgrade-label";
 
 const CommandList = ({
   items,
@@ -29,6 +35,16 @@ const CommandList = ({
   const { t } = useTranslation();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [countAnnouncement, setCountAnnouncement] = useState("");
+  const [selectionAnnouncement, setSelectionAnnouncement] = useState("");
+
+  const hasBases = useHasFeature(Feature.BASES);
+  const upgradeLabel = useUpgradeLabel();
+  // Without the bases entitlement the item stays visible but inert; an
+  // expired license the client can't detect falls through to a handled
+  // create failure.
+  const isItemDisabled = (item: SlashMenuItemType) =>
+    !hasBases && item.requiresBases === true;
 
   const flatItems = useMemo(() => {
     return Object.values(items).flat();
@@ -37,11 +53,11 @@ const CommandList = ({
   const selectItem = useCallback(
     (index: number) => {
       const item = flatItems[index];
-      if (item) {
+      if (item && !isItemDisabled(item)) {
         command(item);
       }
     },
-    [command, flatItems],
+    [command, flatItems, hasBases],
   );
 
   useEffect(() => {
@@ -80,13 +96,46 @@ const CommandList = ({
   }, [flatItems]);
 
   useEffect(() => {
+    if (flatItems.length === 0) {
+      setCountAnnouncement("");
+      return;
+    }
+    setCountAnnouncement(
+      t("{{count}} command available", { count: flatItems.length }),
+    );
+  }, [flatItems.length, t]);
+
+  useEffect(() => {
+    const item = flatItems[selectedIndex];
+    if (!item) {
+      setSelectionAnnouncement("");
+      return;
+    }
+    setSelectionAnnouncement(`${t(item.title)}, ${t(item.description)}`);
+  }, [selectedIndex, flatItems, t]);
+
+  useEffect(() => {
     viewportRef.current
       ?.querySelector(`[data-item-index="${selectedIndex}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
   return flatItems.length > 0 ? (
-    <Paper id="slash-command" shadow="md" p="xs" withBorder>
+    <Paper
+      id="slash-command"
+      shadow="md"
+      p="xs"
+      withBorder
+      role="listbox"
+      aria-label={t("Slash commands")}
+      aria-activedescendant={`slash-command-option-${selectedIndex}`}
+    >
+      <VisuallyHidden role="status" aria-live="polite" aria-atomic="true">
+        {countAnnouncement}
+      </VisuallyHidden>
+      <VisuallyHidden role="status" aria-live="polite" aria-atomic="true">
+        {selectionAnnouncement}
+      </VisuallyHidden>
       <ScrollArea
         viewportRef={viewportRef}
         h={350}
@@ -94,22 +143,38 @@ const CommandList = ({
         scrollbarSize={8}
         overscrollBehavior="contain"
       >
-        {Object.entries(items).map(([category, categoryItems]) => (
-          <div key={category}>
+        {(() => {
+          let flatIndex = -1;
+          return Object.entries(items).map(([category, categoryItems]) => (
+          <div key={category} role="group" aria-label={category}>
             <Text c="dimmed" mb={4} fw={500} tt="capitalize">
               {category}
             </Text>
-            {categoryItems.map((item: SlashMenuItemType, index: number) => (
+            {categoryItems.map((item: SlashMenuItemType) => {
+              flatIndex += 1;
+              const itemIndex = flatIndex;
+              const disabled = isItemDisabled(item);
+              return (
+              <Tooltip
+                key={itemIndex}
+                label={upgradeLabel}
+                disabled={!disabled}
+                position="right"
+              >
               <UnstyledButton
-                data-item-index={index}
-                key={index}
-                onClick={() => selectItem(index)}
+                data-item-index={itemIndex}
+                id={`slash-command-option-${itemIndex}`}
+                role="option"
+                aria-selected={itemIndex === selectedIndex}
+                aria-disabled={disabled}
+                onClick={() => selectItem(itemIndex)}
                 className={clsx(classes.menuBtn, {
-                  [classes.selectedItem]: index === selectedIndex,
+                  [classes.selectedItem]: itemIndex === selectedIndex,
+                  [classes.gatedItem]: disabled,
                 })}
               >
-                <Group>
-                  <ActionIcon variant="default" component="div">
+                <Group wrap="nowrap">
+                  <ActionIcon variant="default" component="div" aria-hidden="true">
                     <item.icon size={18} />
                   </ActionIcon>
 
@@ -122,11 +187,20 @@ const CommandList = ({
                       {t(item.description)}
                     </Text>
                   </div>
+
+                  {disabled && (
+                    <Badge size="xs" variant="light" color="gray">
+                      {t("Upgrade")}
+                    </Badge>
+                  )}
                 </Group>
               </UnstyledButton>
-            ))}
+              </Tooltip>
+              );
+            })}
           </div>
-        ))}
+          ));
+        })()}
       </ScrollArea>
     </Paper>
   ) : null;

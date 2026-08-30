@@ -12,12 +12,14 @@ import {
   IconInfoCircle,
   IconList,
   IconListNumbers,
+  IconQuote,
   IconTypography,
 } from "@tabler/icons-react";
 import { Popover, Button, ScrollArea, Tooltip } from "@mantine/core";
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { useTranslation } from "react-i18next";
+import { isEditorReady } from "@docmost/editor-ext";
 import classes from "./bubble-menu.module.css";
 
 interface NodeSelectorProps {
@@ -59,6 +61,7 @@ export const NodeSelector: FC<NodeSelectorProps> = ({
         isCodeBlock: ctx.editor.isActive("codeBlock"),
         isCallout: ctx.editor.isActive("callout"),
         isDetails: ctx.editor.isActive("details"),
+        isTransclusionSource: ctx.editor.isActive("transclusionSource"),
       };
     },
   });
@@ -123,6 +126,12 @@ export const NodeSelector: FC<NodeSelectorProps> = ({
       isActive: () => editorState?.isBlockquote,
     },
     {
+      name: "Synced block",
+      icon: IconQuote,
+      command: () => editor.chain().focus().toggleTransclusionSource().run(),
+      isActive: () => editorState?.isTransclusionSource,
+    },
+    {
       name: "Code",
       icon: IconCode,
       command: () => editor.chain().focus().toggleCodeBlock().run(),
@@ -147,9 +156,14 @@ export const NodeSelector: FC<NodeSelectorProps> = ({
   };
 
   return (
-    <Popover opened={isOpen} withArrow>
+    <Popover opened={isOpen} onChange={setIsOpen} withArrow>
       <Popover.Target>
-        <Tooltip label={t("Turn into")} withArrow withinPortal={false} disabled={isOpen}>
+        <Tooltip
+          label={t("Turn into")}
+          withArrow
+          withinPortal={false}
+          disabled={isOpen}
+        >
           <Button
             className={classes.buttonRoot}
             variant="default"
@@ -157,6 +171,9 @@ export const NodeSelector: FC<NodeSelectorProps> = ({
             radius="0"
             rightSection={<IconChevronDown size={16} />}
             onClick={() => setIsOpen(!isOpen)}
+            aria-label={t("Turn into")}
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
           >
             {t(activeItem?.name)}
           </Button>
@@ -177,7 +194,7 @@ export const NodeSelector: FC<NodeSelectorProps> = ({
                 justify="left"
                 fullWidth
                 onClick={() => {
-                  item.command();
+                  if (isEditorReady(editor)) item.command();
                   setIsOpen(false);
                 }}
                 style={{ border: "none" }}

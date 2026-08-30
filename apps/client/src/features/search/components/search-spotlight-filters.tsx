@@ -1,13 +1,10 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import cx from "clsx";
 import {
   Button,
   Menu,
   Text,
-  TextInput,
-  Divider,
   Badge,
-  ScrollArea,
-  Avatar,
   Group,
   Switch,
   getDefaultZIndex,
@@ -15,18 +12,24 @@ import {
 import {
   IconChevronDown,
   IconBuilding,
+  IconPlus,
   IconFileDescription,
-  IconSearch,
   IconCheck,
+  IconUser,
+  IconTag,
+  IconLetterCase,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import { useDebouncedValue } from "@mantine/hooks";
 import { useGetSpacesQuery } from "@/features/space/queries/space-query";
+import { SpaceFilterMenu } from "@/features/space/components/space-filter-menu";
+import { CreatorFilterMenu } from "@/features/search/components/creator-filter-menu";
+import { RadioMenuItem } from "@/components/ui/radio-menu-item";
 import { useHasFeature } from "@/ee/hooks/use-feature";
 import { Feature } from "@/ee/features";
 import classes from "./search-spotlight-filters.module.css";
 import { useAtom } from "jotai";
 import { workspaceAtom } from "@/features/user/atoms/current-user-atom.ts";
+import { LabelFilterMenu } from "./label-filter-menu";
 
 interface SearchSpotlightFiltersProps {
   onFiltersChange?: (filters: any) => void;
@@ -44,43 +47,23 @@ export function SearchSpotlightFilters({
   const { t } = useTranslation();
   const hasAttachmentIndexing = useHasFeature(Feature.ATTACHMENT_INDEXING);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(
-    spaceId || null,
+    spaceId || null
   );
-  const [spaceSearchQuery, setSpaceSearchQuery] = useState("");
-  const [debouncedSpaceQuery] = useDebouncedValue(spaceSearchQuery, 300);
   const [contentType, setContentType] = useState<string | null>("page");
+  const [selectedCreatorId, setSelectedCreatorId] = useState<string | null>(null);
+  const [selectedCreatorName, setSelectedCreatorName] = useState<string | null>(
+    null
+  );
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+  const [titleOnly, setTitleOnly] = useState(false);
+  const [openedFilter, setOpenedFilter] = useState<string | null>(null);
+  const [visibleFilters, setVisibleFilters] = useState<string[]>([]);
   const [workspace] = useAtom(workspaceAtom);
 
-  const { data: spacesData } = useGetSpacesQuery({
-    limit: 100,
-    query: debouncedSpaceQuery,
-  });
-
-  const selectedSpaceData = useMemo(() => {
-    if (!spacesData?.items || !selectedSpaceId) return null;
-    return spacesData.items.find((space) => space.id === selectedSpaceId);
-  }, [spacesData?.items, selectedSpaceId]);
-
-  const availableSpaces = useMemo(() => {
-    const spaces = spacesData?.items || [];
-    if (!selectedSpaceId) return spaces;
-
-    // Sort to put selected space first
-    return [...spaces].sort((a, b) => {
-      if (a.id === selectedSpaceId) return -1;
-      if (b.id === selectedSpaceId) return 1;
-      return 0;
-    });
-  }, [spacesData?.items, selectedSpaceId]);
-
-  useEffect(() => {
-    if (onFiltersChange) {
-      onFiltersChange({
-        spaceId: selectedSpaceId,
-        contentType,
-      });
-    }
-  }, []);
+  const { data: spacesData } = useGetSpacesQuery({ limit: 100 });
+  const selectedSpaceData = selectedSpaceId
+    ? spacesData?.items.find((space) => space.id === selectedSpaceId)
+    : null;
 
   const contentTypeOptions = [
     { value: "page", label: t("Pages") },
@@ -91,38 +74,70 @@ export function SearchSpotlightFilters({
     },
   ];
 
+  useEffect(() => {
+    onFiltersChange?.({
+      spaceId: selectedSpaceId,
+      contentType,
+      creatorId: selectedCreatorId,
+      labelIds: selectedLabelIds,
+      titleOnly,
+    });
+  }, [
+    selectedSpaceId,
+    contentType,
+    selectedCreatorId,
+    selectedLabelIds,
+    titleOnly,
+    onFiltersChange,
+  ]);
+
   const handleSpaceSelect = (spaceId: string | null) => {
     setSelectedSpaceId(spaceId);
+  };
 
-    if (onFiltersChange) {
-      onFiltersChange({
-        spaceId: spaceId,
-        contentType,
-      });
+  const handleCreatorSelect = (user: { id: string; name: string } | null) => {
+    setSelectedCreatorId(user?.id ?? null);
+    setSelectedCreatorName(user?.name ?? null);
+  };
+
+  const handleLabelsSelect = (labelIds: string[]) => {
+    setSelectedLabelIds(labelIds);
+  };
+
+  const handleChangeContentType = (value: string) => {
+    setContentType(value);
+
+    if (value === "attachment") {
+      setSelectedLabelIds([]);
     }
   };
 
-  const handleFilterChange = (filterType: string, value: any) => {
-    let newSelectedSpaceId = selectedSpaceId;
-    let newContentType = contentType;
+  const onDemandFilters = [
+    { key: "creator", label: t("Created by"), icon: IconUser, available: true },
+    {
+      key: "labels",
+      label: t("Labels"),
+      icon: IconTag,
+      available: contentType !== "attachment",
+    },
+  ];
 
-    switch (filterType) {
-      case "spaceId":
-        newSelectedSpaceId = value;
-        setSelectedSpaceId(value);
-        break;
-      case "contentType":
-        newContentType = value;
-        setContentType(value);
-        break;
-    }
+  const isFilterVisible = (key: string) => {
+    if (openedFilter === key) return true;
+    if (key === "creator") return !!selectedCreatorId;
+    if (key === "labels")
+      return contentType !== "attachment" && selectedLabelIds.length > 0;
+    return false;
+  };
 
-    if (onFiltersChange) {
-      onFiltersChange({
-        spaceId: newSelectedSpaceId,
-        contentType: newContentType,
-      });
-    }
+  const orderedVisibleFilters = visibleFilters.filter(isFilterVisible);
+  const addableFilters = onDemandFilters.filter(
+    (filter) => filter.available && !isFilterVisible(filter.key),
+  );
+
+  const revealFilter = (key: string) => {
+    setVisibleFilters((prev) => [...prev.filter((k) => k !== key), key]);
+    setOpenedFilter(key);
   };
 
   return (
@@ -145,93 +160,43 @@ export function SearchSpotlightFilters({
             color="blue"
             labelPosition="left"
             styles={{
-              root: { display: "flex", alignItems: "center" },
-              label: { paddingRight: "8px", fontSize: "13px", fontWeight: 500 },
+              root: {
+                display: "flex",
+                alignItems: "center",
+                flexShrink: 0,
+              },
+              label: {
+                whiteSpace: "nowrap",
+                paddingRight: "8px",
+                fontSize: "13px",
+                fontWeight: 500,
+              },
             }}
           />
         </div>
       )}
 
-      <Menu
-        shadow="md"
-        width={250}
+      <SpaceFilterMenu
+        value={selectedSpaceId}
+        onChange={handleSpaceSelect}
         position="bottom-start"
+        width={250}
         zIndex={getDefaultZIndex("max")}
       >
-        <Menu.Target>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="sm"
-            rightSection={<IconChevronDown size={14} />}
-            leftSection={<IconBuilding size={16} />}
-            className={classes.filterButton}
-            fw={500}
-          >
-            {selectedSpaceId
-              ? `${t("Space")}: ${selectedSpaceData?.name || t("Unknown")}`
-              : `${t("Space")}: ${t("All spaces")}`}
-          </Button>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <TextInput
-            placeholder={t("Find a space")}
-            data-autofocus
-            autoFocus
-            leftSection={<IconSearch size={16} />}
-            value={spaceSearchQuery}
-            onChange={(e) => setSpaceSearchQuery(e.target.value)}
-            size="sm"
-            variant="filled"
-            radius="sm"
-            styles={{ input: { marginBottom: 8 } }}
-          />
-
-          <ScrollArea.Autosize mah={280}>
-            <Menu.Item onClick={() => handleSpaceSelect(null)}>
-              <Group flex="1" gap="xs">
-                <Avatar
-                  color="initials"
-                  variant="filled"
-                  name={t("All spaces")}
-                  size={20}
-                />
-                <div style={{ flex: 1 }}>
-                  <Text size="sm" fw={500}>
-                    {t("All spaces")}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {t("Search in all your spaces")}
-                  </Text>
-                </div>
-                {!selectedSpaceId && <IconCheck size={20} />}
-              </Group>
-            </Menu.Item>
-
-            <Divider my="xs" />
-
-            {availableSpaces.map((space) => (
-              <Menu.Item
-                key={space.id}
-                onClick={() => handleSpaceSelect(space.id)}
-              >
-                <Group flex="1" gap="xs">
-                  <Avatar
-                    color="initials"
-                    variant="filled"
-                    name={space.name}
-                    size={20}
-                  />
-                  <Text size="sm" fw={500} style={{ flex: 1 }} truncate>
-                    {space.name}
-                  </Text>
-                  {selectedSpaceId === space.id && <IconCheck size={20} />}
-                </Group>
-              </Menu.Item>
-            ))}
-          </ScrollArea.Autosize>
-        </Menu.Dropdown>
-      </Menu>
+        <Button
+          variant="subtle"
+          color="gray"
+          size="sm"
+          rightSection={<IconChevronDown size={14} />}
+          leftSection={<IconBuilding size={16} />}
+          className={classes.filterButton}
+          fw={500}
+        >
+          {selectedSpaceId
+            ? `${t("Space")}: ${selectedSpaceData?.name || t("Unknown")}`
+            : `${t("Space")}: ${t("All spaces")}`}
+        </Button>
+      </SpaceFilterMenu>
 
       <Menu
         shadow="md"
@@ -258,10 +223,12 @@ export function SearchSpotlightFilters({
           {contentTypeOptions.map((option) => (
             <Menu.Item
               key={option.value}
+              component={RadioMenuItem}
+              aria-checked={contentType === option.value}
               onClick={() =>
                 !option.disabled &&
                 contentType !== option.value &&
-                handleFilterChange("contentType", option.value)
+                handleChangeContentType(option.value)
               }
               disabled={
                 option.disabled || (isAiMode && option.value === "attachment")
@@ -275,20 +242,138 @@ export function SearchSpotlightFilters({
                       {t("Enterprise")}
                     </Badge>
                   )}
-                  {!option.disabled &&
-                    isAiMode &&
-                    option.value === "attachment" && (
-                      <Text size="xs" mt={4}>
-                        {t("AI Answers not available for attachments")}
-                      </Text>
-                    )}
+                  {!option.disabled && isAiMode && option.value === "attachment" && (
+                    <Text size="xs" mt={4}>
+                      {t("AI Answers not available for attachments")}
+                    </Text>
+                  )}
                 </div>
-                {contentType === option.value && <IconCheck size={20} />}
+                {contentType === option.value && <IconCheck size={20} aria-hidden />}
               </Group>
             </Menu.Item>
           ))}
         </Menu.Dropdown>
       </Menu>
+
+      {!isAiMode && (
+        <Button
+          variant={titleOnly ? "light" : "subtle"}
+          color={titleOnly ? "blue" : "gray"}
+          size="sm"
+          radius="xl"
+          leftSection={<IconLetterCase size={16} />}
+          className={cx(
+            classes.filterButton,
+            titleOnly && classes.filterButtonActive,
+          )}
+          fw={500}
+          aria-pressed={titleOnly}
+          onClick={() => setTitleOnly(!titleOnly)}
+        >
+          {t("Title only")}
+        </Button>
+      )}
+
+      {!isAiMode &&
+        orderedVisibleFilters.map((filterKey) => {
+        if (filterKey === "creator") {
+          return (
+            <CreatorFilterMenu
+              key="creator"
+              value={selectedCreatorId}
+              onChange={handleCreatorSelect}
+              position="bottom-start"
+              width={250}
+              zIndex={getDefaultZIndex("max")}
+              opened={openedFilter === "creator"}
+              onOpenChange={(opened) =>
+                setOpenedFilter(opened ? "creator" : null)
+              }
+            >
+              <Button
+                variant="subtle"
+                color="gray"
+                size="sm"
+                rightSection={<IconChevronDown size={14} />}
+                leftSection={<IconUser size={16} />}
+                className={classes.filterButton}
+                fw={500}
+              >
+                {selectedCreatorId
+                  ? `${t("Created by")}: ${selectedCreatorName || t("Unknown")}`
+                  : `${t("Created by")}: ${t("Anyone")}`}
+              </Button>
+            </CreatorFilterMenu>
+          );
+        }
+
+        if (filterKey === "labels") {
+          return (
+            <LabelFilterMenu
+              key="labels"
+              value={selectedLabelIds}
+              onChange={handleLabelsSelect}
+              position="bottom-start"
+              width={250}
+              zIndex={getDefaultZIndex("max")}
+              opened={openedFilter === "labels"}
+              onOpenChange={(opened) =>
+                setOpenedFilter(opened ? "labels" : null)
+              }
+            >
+              <Button
+                variant="subtle"
+                color="gray"
+                size="sm"
+                rightSection={<IconChevronDown size={14} />}
+                leftSection={<IconTag size={16} />}
+                className={classes.filterButton}
+                fw={500}
+              >
+                {selectedLabelIds.length > 0
+                  ? `${t("Labels")} (${selectedLabelIds.length})`
+                  : t("Labels")}
+              </Button>
+            </LabelFilterMenu>
+          );
+        }
+
+        return null;
+      })}
+
+      {!isAiMode && addableFilters.length > 0 && (
+        <Menu
+          shadow="md"
+          width={200}
+          position="bottom-end"
+          zIndex={getDefaultZIndex("max")}
+        >
+          <Menu.Target>
+            <Button
+              variant="subtle"
+              color="gray"
+              size="sm"
+              leftSection={<IconPlus size={16} />}
+              className={classes.filterButton}
+              style={{ marginLeft: "auto" }}
+              fw={500}
+            >
+              {t("Filter")}
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            {addableFilters.map((filter) => (
+              <Menu.Item
+                key={filter.key}
+                leftSection={<filter.icon size={16} />}
+                onClick={() => revealFilter(filter.key)}
+              >
+                {filter.label}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+      )}
     </div>
   );
 }

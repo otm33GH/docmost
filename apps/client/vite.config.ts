@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
     BILLING_TRIAL_DAYS,
     POSTHOG_HOST,
     POSTHOG_KEY,
+    AI_VECTOR_DRIVER,
   } = loadEnv(mode, envPath, "");
 
   return {
@@ -31,6 +32,7 @@ export default defineConfig(({ mode }) => {
         BILLING_TRIAL_DAYS,
         POSTHOG_HOST,
         POSTHOG_KEY,
+        AI_VECTOR_DRIVER,
       },
       APP_VERSION: JSON.stringify(process.env.npm_package_version),
     },
@@ -38,12 +40,12 @@ export default defineConfig(({ mode }) => {
     build: {
       rolldownOptions: {
         output: {
-          codeSplitting: {
+          advancedChunks: {
             groups: [
-              { name: "vendor-mantine", test: /@mantine/ },
-              { name: "vendor-mermaid", test: /mermaid|cytoscape|elkjs/ },
-              { name: "vendor-excalidraw", test: /excalidraw/ },
-              { name: "vendor-katex", test: /katex/ },
+              {
+                name: "vendor-mantine",
+                test: /[\\/]node_modules[\\/]@mantine[\\/]/,
+              },
             ],
           },
         },

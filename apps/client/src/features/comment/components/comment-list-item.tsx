@@ -5,6 +5,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { useTimeAgo } from "@/hooks/use-time-ago";
 import CommentEditor from "@/features/comment/components/comment-editor";
 import { pageEditorAtom } from "@/features/editor/atoms/editor-atoms";
+import { isEditorReady } from "@docmost/editor-ext";
 import CommentActions from "@/features/comment/components/comment-actions";
 import CommentMenu from "@/features/comment/components/comment-menu";
 import { useHasFeature } from "@/ee/hooks/use-feature";
@@ -75,7 +76,9 @@ function CommentListItem({
   async function handleDeleteComment() {
     try {
       await deleteCommentMutation.mutateAsync(comment.id);
-      editor?.commands.unsetComment(comment.id);
+      if (isEditorReady(editor)) {
+        editor.commands.unsetComment(comment.id);
+      }
     } catch (error) {
       console.error("Failed to delete comment:", error);
     }
@@ -93,7 +96,7 @@ function CommentListItem({
         resolved: !isResolved,
       });
 
-      if (editor) {
+      if (isEditorReady(editor)) {
         editor.commands.setCommentResolved(comment.id, !isResolved);
       }
     } catch (error) {
@@ -173,6 +176,15 @@ function CommentListItem({
           <Box
             className={classes.textSelection}
             onClick={() => handleCommentClick(comment)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleCommentClick(comment);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={t("Jump to comment selection")}
           >
             <Text size="sm">{comment?.selection}</Text>
           </Box>
