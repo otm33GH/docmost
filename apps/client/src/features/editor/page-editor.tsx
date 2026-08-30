@@ -80,6 +80,13 @@ import { EditorAiMenu } from "@/ee/ai/components/editor/ai-menu/ai-menu";
 import { EditorLinkMenu } from "@/features/editor/components/link/link-menu";
 import ColumnsMenu from "@/features/editor/components/columns/columns-menu.tsx";
 import { NextcloudPicker } from "./components/nextcloud/nextcloud-picker";
+import { TransclusionLookupProvider } from "@/features/editor/components/transclusion/transclusion-lookup-context";
+import { useTranslation } from "react-i18next";
+import {
+  acquireCollabSocket,
+  getCollabSocket,
+  releaseCollabSocket,
+} from "@/features/editor/collab-socket";
 
 interface PageEditorProps {
   pageId: string;
